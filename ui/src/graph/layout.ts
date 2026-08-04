@@ -1,7 +1,10 @@
 import type { NodeState } from "../protocol/types";
 
-export const COLUMN_WIDTH = 280;
-export const ROW_HEIGHT = 170;
+// Wide enough that the tape running between two stages is a visible span
+// rather than a hairline join. The tape is the thing that shows work moving,
+// so it gets real estate.
+export const COLUMN_WIDTH = 430;
+export const ROW_HEIGHT = 300;
 
 export interface Position {
   x: number;

@@ -1,1 +1,76 @@
 @import "tailwindcss";
+
+/* The dashboard is an instrument, not a dashboard: a machine that runs work
+   items past you. Warm graphite chassis rather than blue-black, and three
+   signal colours that each mean exactly one thing. */
+@theme {
+  --color-chassis: #1c1b19;
+  --color-panel: #232220;
+  --color-well: #2a2825;
+  --color-rule: #383530;
+
+  --color-ink: #7fd1c1; /* moving */
+  --color-signal: #e8a33d; /* held, with a stated reason */
+  --color-fault: #c25b4a; /* abandoned: dropped without completing */
+
+  --color-paper: #e6e1d8;
+  --color-muted: #8a857c;
+
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-chassis);
+  color: var(--color-paper);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+/* Micro-labels. Uppercase and widely tracked so they read as instrument
+   engraving rather than as content. */
+.engraved {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* The tape advancing between stages. Speed is set per edge from the measured
+   throughput, so a stage moving nothing has a still tape. Linear and
+   continuous on purpose: a flash reads as an alert, and steady work is not an
+   alert. */
+@keyframes tape-advance {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+
+.tape-flow {
+  stroke-dasharray: 6 10;
+  animation: tape-advance var(--tape-period, 2s) linear infinite;
+}
+
+.tape-still {
+  stroke-dasharray: 2 10;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tape-flow {
+    animation: none;
+  }
+}
+
+.react-flow__background {
+  background: var(--color-chassis);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}

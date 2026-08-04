@@ -1,6 +1,22 @@
 import { useMemo } from "react";
 import { usePipelineStore } from "../store/store";
 import { formatAge, holdReason } from "../format";
+import type { JobState } from "../protocol/types";
+
+const MARK: Record<JobState["phase"], string> = {
+  active: "bg-ink",
+  held: "bg-signal",
+  abandoned: "bg-fault",
+};
+
+function Reading({ label, value }: { label: string; value: string }) {
+  return (
+    <>
+      <dt className="engraved self-center">{label}</dt>
+      <dd className="text-right text-[12px] text-paper">{value}</dd>
+    </>
+  );
+}
 
 export function NodeDetail({ nowMs }: { nowMs: number }) {
   const selectedNode = usePipelineStore((state) => state.selectedNode);
@@ -10,8 +26,8 @@ export function NodeDetail({ nowMs }: { nowMs: number }) {
 
   const node = selectedNode ? nodes[selectedNode] : undefined;
 
-  // Oldest first: the reason to open this panel is usually to find what is not
-  // moving, not to read the most recent arrival.
+  // Oldest first, matching the tape well: the reason to open this panel is
+  // almost always to find what is not moving.
   const items = useMemo(
     () =>
       Object.values(jobs)
@@ -23,68 +39,71 @@ export function NodeDetail({ nowMs }: { nowMs: number }) {
   if (!node) return null;
 
   return (
-    <aside className="w-96 shrink-0 overflow-y-auto border-l border-slate-800 bg-slate-950 p-4 text-slate-100">
-      <div className="flex items-start justify-between">
+    <aside className="w-[340px] shrink-0 overflow-y-auto border-l border-rule bg-panel">
+      <div className="flex items-start justify-between border-b border-rule px-4 py-3">
         <div>
-          <h2 className="text-base font-semibold">{node.display_name}</h2>
-          <p className="font-mono text-xs text-slate-500">{node.node_id}</p>
+          <h2 className="text-[13px] text-paper">{node.display_name}</h2>
+          <p className="engraved mt-0.5">{node.node_id}</p>
         </div>
         <button
           type="button"
           onClick={() => selectNode(null)}
-          className="rounded px-2 py-1 text-xs text-slate-400 hover:bg-slate-800"
+          className="engraved hover:text-paper"
         >
           close
         </button>
       </div>
 
-      <dl className="mt-4 grid grid-cols-2 gap-y-1 text-sm">
-        <dt className="text-slate-400">in flight</dt>
-        <dd className="text-right tabular-nums">{node.counters.in_flight}</dd>
-        <dt className="text-slate-400">queue depth</dt>
-        <dd className="text-right tabular-nums">{node.counters.queue_depth}</dd>
-        <dt className="text-slate-400">throughput</dt>
-        <dd className="text-right tabular-nums">
-          {node.counters.throughput_per_sec.toFixed(2)}/s
-        </dd>
-        <dt className="text-slate-400">p50 time here</dt>
-        <dd className="text-right tabular-nums">{node.counters.p50_ms}ms</dd>
-        <dt className="text-slate-400">p95 time here</dt>
-        <dd className="text-right tabular-nums">{node.counters.p95_ms}ms</dd>
-        <dt className="text-slate-400">left in total</dt>
-        <dd className="text-right tabular-nums">{node.counters.left_total}</dd>
+      <dl className="grid grid-cols-2 gap-y-2 border-b border-rule px-4 py-3">
+        <Reading label="in flight" value={String(node.counters.in_flight)} />
+        <Reading label="queued" value={String(node.counters.queue_depth)} />
+        <Reading label="rate" value={`${node.counters.throughput_per_sec.toFixed(2)}/s`} />
+        <Reading label="p50 here" value={`${node.counters.p50_ms} ms`} />
+        <Reading label="p95 here" value={`${node.counters.p95_ms} ms`} />
+        <Reading label="left in total" value={String(node.counters.left_total)} />
       </dl>
 
-      <h3 className="mt-6 text-[11px] uppercase tracking-wide text-slate-500">
-        Items here ({items.length})
-      </h3>
+      <div className="px-4 py-3">
+        <div className="engraved mb-2">items here ({items.length})</div>
 
-      {items.length === 0 ? (
-        <p className="mt-2 text-xs text-slate-500">Nothing at this node right now.</p>
-      ) : (
-        <ul className="mt-2 space-y-2">
-          {items.map((job) => {
-            const reason = holdReason(job);
-            return (
-              <li key={job.job_id} className="rounded border border-slate-800 p-2 text-xs">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="font-mono">{job.job_id}</span>
-                  <span className="tabular-nums text-slate-400">
-                    {formatAge(nowMs - job.entered_node_at_ms)}
-                  </span>
-                </div>
-                <div className="mt-1 text-slate-400">{job.job_type}</div>
-                {reason && <div className="mt-1 text-amber-300">{reason}</div>}
-                {Object.entries(job.meta).map(([key, value]) => (
-                  <div key={key} className="mt-1 text-slate-500">
-                    {key}: <span className="text-slate-300">{value}</span>
+        {items.length === 0 ? (
+          <p className="text-[12px] text-muted">Nothing at this stage right now.</p>
+        ) : (
+          <ul>
+            {items.map((job) => {
+              const reason = holdReason(job);
+              return (
+                <li key={job.job_id} className="border-t border-rule py-2 first:border-t-0">
+                  <div className="flex items-baseline gap-2">
+                    <span className={`h-3 w-[5px] shrink-0 self-center ${MARK[job.phase]}`} />
+                    <span className="text-[12px] text-paper">{job.job_id}</span>
+                    <span className="engraved">{job.job_type}</span>
+                    <span className="ml-auto text-[12px] text-muted">
+                      {formatAge(nowMs - job.entered_node_at_ms)}
+                    </span>
                   </div>
-                ))}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+
+                  {reason && (
+                    <div
+                      className={`mt-1 pl-[13px] text-[12px] ${
+                        job.phase === "abandoned" ? "text-fault" : "text-signal"
+                      }`}
+                    >
+                      {reason}
+                    </div>
+                  )}
+
+                  {Object.entries(job.meta).map(([key, value]) => (
+                    <div key={key} className="mt-1 pl-[13px] text-[11px] text-muted">
+                      {key} <span className="text-paper">{value}</span>
+                    </div>
+                  ))}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </aside>
   );
 }
