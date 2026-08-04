@@ -1,14 +1,18 @@
 //! Serves the dashboard. Subscribes to collector output; never mutates state.
 
+use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::State;
+use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
+use futures_util::SinkExt;
 
+use crate::model::ServerMessage;
 use crate::runtime::CollectorHandle;
 
 /// Shared with every request handler.
 #[derive(Clone, Debug)]
 pub(crate) struct ServerState {
-    #[allow(dead_code)] // Read by the /ws handler once patch streaming lands.
     pub(crate) collector: CollectorHandle,
 }
 
@@ -28,6 +32,7 @@ pub(crate) fn serve(listener: std::net::TcpListener, collector: CollectorHandle)
 
         let app = Router::new()
             .route("/health", get(|| async { "ok" }))
+            .route("/ws", get(websocket_upgrade))
             .route("/", get(index))
             .with_state(ServerState { collector });
 
@@ -42,4 +47,20 @@ pub(crate) fn serve(listener: std::net::TcpListener, collector: CollectorHandle)
 /// Placeholder until the dashboard UI is embedded in milestone 4.
 async fn index() -> &'static str {
     "pipeline-viz is running. The dashboard UI is not built yet; connect to /ws for the event stream."
+}
+
+async fn websocket_upgrade(upgrade: WebSocketUpgrade, State(state): State<ServerState>) -> Response {
+    upgrade.on_upgrade(move |socket| client_loop(socket, state))
+}
+
+/// One task per connected dashboard client.
+async fn client_loop(mut socket: WebSocket, state: ServerState) {
+    let snapshot = state.collector.snapshot();
+
+    let Ok(encoded) = serde_json::to_string(&ServerMessage::Snapshot(snapshot)) else {
+        return;
+    };
+    // A send failure means the client is gone, which needs no handling
+    // beyond ending this task.
+    let _ = socket.send(Message::Text(encoded.into())).await;
 }

@@ -6,7 +6,9 @@
 
 use std::time::Duration;
 
+use futures_util::StreamExt;
 use pipeline_viz::PipelineTracker;
+use tokio_tungstenite::tungstenite::Message;
 
 fn tracker() -> PipelineTracker {
     PipelineTracker::builder()
@@ -69,4 +71,59 @@ async fn http_get(url: &str) -> String {
         .unwrap_or_default()
         .trim()
         .to_string()
+}
+
+/// Connect a WebSocket client and return the stream.
+async fn connect(
+    tracker: &PipelineTracker,
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
+    let url = format!("ws://127.0.0.1:{}/ws", tracker.port());
+    let (stream, _) = tokio_tungstenite::connect_async(url)
+        .await
+        .expect("ws connect");
+    stream
+}
+
+async fn next_json(
+    stream: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> serde_json::Value {
+    let message = tokio::time::timeout(Duration::from_secs(2), stream.next())
+        .await
+        .expect("a message arrives within two seconds")
+        .expect("the stream is open")
+        .expect("the frame is valid");
+
+    match message {
+        Message::Text(text) => serde_json::from_str(&text).expect("valid JSON"),
+        other => panic!("expected a text frame, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_connecting_client_receives_full_state_first() {
+    let tracker = tracker();
+    tracker.register_node_named(
+        "committer",
+        "Database Committer",
+        pipeline_viz::NodeKind::Sink,
+        ["indexer"],
+    );
+    let mut job = tracker
+        .job("committer")
+        .id("block_1")
+        .job_type("Block")
+        .start();
+    job.hold("Waiting for finality");
+    tokio::time::sleep(Duration::from_millis(60)).await;
+
+    let mut stream = connect(&tracker).await;
+    let first = next_json(&mut stream).await;
+
+    assert_eq!(first["type"], "snapshot");
+    assert_eq!(first["nodes"][0]["display_name"], "Database Committer");
+    assert_eq!(first["jobs"][0]["job_id"], "block_1");
+    assert_eq!(first["jobs"][0]["phase"], "held");
+    assert_eq!(first["jobs"][0]["reason"], "Waiting for finality");
 }
