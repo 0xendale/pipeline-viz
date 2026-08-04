@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Frontend
+node_modules/
+dist/
+.vite/
+
+# Agent-local state — never commit
+.omc/
+.claude/
+.superpowers/
+.cursor/
+.windsurf/
+.gemini/
+.antigravity/
+.aider*
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+AGENTS.local.md
+pipeline-viz-architecture.pdf
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
