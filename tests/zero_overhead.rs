@@ -15,6 +15,7 @@ const FORBIDDEN: &[&str] = &[
     "serde_json",
     "axum",
     "futures-util",
+    "sysinfo",
     "tokio-tungstenite",
     "rust-embed",
 ];

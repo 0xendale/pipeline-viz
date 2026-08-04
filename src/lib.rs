@@ -49,6 +49,8 @@ mod collector;
 #[cfg(feature = "viz")]
 mod event;
 #[cfg(feature = "viz")]
+mod process;
+#[cfg(feature = "viz")]
 mod runtime;
 #[cfg(feature = "viz")]
 mod server;
@@ -65,6 +67,6 @@ pub use tracker::{Error, JobBuilder, JobGuard, PipelineTracker, TrackerBuilder};
 pub use noop::{Error, JobBuilder, JobGuard, PipelineTracker, TrackerBuilder};
 
 pub use model::{
-    JobId, JobPhase, JobState, NodeCounters, NodeId, NodeKind, NodeState, Patch, ServerMessage,
-    Snapshot,
+    JobId, JobPhase, JobState, NodeCounters, NodeId, NodeKind, NodeState, Patch, ProcessStats,
+    ServerMessage, Snapshot,
 };

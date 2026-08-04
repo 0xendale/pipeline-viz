@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use crate::model::{JobId, NodeId, NodeKind};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Event {
     RegisterNode {
         node_id: NodeId,
@@ -55,6 +55,12 @@ pub(crate) enum Event {
         depth: u32,
         at_ms: u64,
     },
+    /// Whole-process resource sample, emitted on an interval by the sampler.
+    ProcessStats {
+        cpu_pct: f64,
+        ram_mb: f64,
+        at_ms: u64,
+    },
 }
 
 impl Event {
@@ -67,7 +73,8 @@ impl Event {
             | Event::JobComplete { at_ms, .. }
             | Event::JobAbandon { at_ms, .. }
             | Event::JobMeta { at_ms, .. }
-            | Event::QueueDepth { at_ms, .. } => *at_ms,
+            | Event::QueueDepth { at_ms, .. }
+            | Event::ProcessStats { at_ms, .. } => *at_ms,
         }
     }
 }
