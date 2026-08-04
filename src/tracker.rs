@@ -87,7 +87,12 @@ impl TrackerBuilder {
         self
     }
 
-    /// Start the collector on the current Tokio runtime.
+    /// Start the collector and the dashboard server on the current Tokio runtime.
+    ///
+    /// Binding happens here rather than inside the spawned task so the caller
+    /// learns the real port immediately, and so a busy port is reported as a
+    /// warning rather than vanishing into a detached task. A bind failure
+    /// leaves the tracker fully functional with no dashboard.
     pub fn start_background(self) -> Result<PipelineTracker, Error> {
         if tokio::runtime::Handle::try_current().is_err() {
             return Err(Error::NoRuntime);
@@ -97,12 +102,40 @@ impl TrackerBuilder {
         let dropped = Arc::new(AtomicU64::new(0));
         let collector = spawn_collector(receiver, Arc::clone(&dropped), self.tick);
 
+        let listener = std::net::TcpListener::bind(("127.0.0.1", self.port));
+        let (bound_port, serving) = match listener {
+            Ok(listener) => {
+                let port = listener
+                    .local_addr()
+                    .map(|addr| addr.port())
+                    .unwrap_or(self.port);
+                match listener.set_nonblocking(true) {
+                    Ok(()) => {
+                        crate::server::serve(listener, collector.clone());
+                        (port, true)
+                    }
+                    Err(error) => {
+                        eprintln!("pipeline-viz: dashboard disabled ({error})");
+                        (self.port, false)
+                    }
+                }
+            }
+            Err(error) => {
+                eprintln!(
+                    "pipeline-viz: dashboard disabled, port {} unavailable ({error})",
+                    self.port
+                );
+                (self.port, false)
+            }
+        };
+
         Ok(PipelineTracker {
             inner: Arc::new(TrackerInner {
                 sender,
                 dropped,
                 collector,
-                port: self.port,
+                port: bound_port,
+                serving,
             }),
         })
     }
@@ -114,6 +147,7 @@ struct TrackerInner {
     dropped: Arc<AtomicU64>,
     collector: CollectorHandle,
     port: u16,
+    serving: bool,
 }
 
 /// Handle used to instrument a pipeline. Cheap to clone and share.
@@ -186,9 +220,17 @@ impl PipelineTracker {
         });
     }
 
-    /// Port the dashboard is configured to serve on.
+    /// Port the dashboard is actually bound to.
     pub fn port(&self) -> u16 {
         self.inner.port
+    }
+
+    /// Whether the dashboard server is actually listening.
+    ///
+    /// False when the port was unavailable. The tracker still works; there is
+    /// simply nothing to connect a browser to.
+    pub fn is_serving(&self) -> bool {
+        self.inner.serving
     }
 
     /// Events discarded because the channel was full.

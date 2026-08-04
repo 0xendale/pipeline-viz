@@ -93,6 +93,11 @@ impl PipelineTracker {
     }
 
     #[inline(always)]
+    pub fn is_serving(&self) -> bool {
+        false
+    }
+
+    #[inline(always)]
     pub fn dropped_events(&self) -> u64 {
         0
     }

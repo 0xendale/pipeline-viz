@@ -9,7 +9,15 @@
 use std::process::Command;
 
 /// Crates that must never appear in a production dependency tree.
-const FORBIDDEN: &[&str] = &["tokio", "serde", "axum", "tokio-tungstenite", "rust-embed"];
+const FORBIDDEN: &[&str] = &[
+    "tokio",
+    "serde",
+    "serde_json",
+    "axum",
+    "futures-util",
+    "tokio-tungstenite",
+    "rust-embed",
+];
 
 #[test]
 fn no_implementation_dependencies_reach_a_production_build() {

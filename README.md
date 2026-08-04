@@ -15,11 +15,11 @@ Live item-level visibility for Rust data pipelines.
 | Milestone | State |
 |---|---|
 | 1. Instrumentation API + state collector | Done |
-| 2. Embedded HTTP/WebSocket server | Next |
-| 3. Dashboard UI | Planned |
+| 2. Embedded HTTP/WebSocket server | Done |
+| 3. Dashboard UI | Next |
 | 4. Single-binary embedding, macros, publish | Planned |
 
-The dashboard does not exist yet. Today the crate tracks state and exposes it through `snapshot()`.
+The dashboard UI does not exist yet. Today the crate serves the event stream over a WebSocket; see [Watching the stream](#watching-the-stream).
 
 ## Usage
 
@@ -58,6 +58,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 An item that never reaches `complete()` — because a `?` returned early, say — is marked **abandoned** rather than silently vanishing. That is usually the bug you were looking for.
+
+## Watching the stream
+
+Until the dashboard UI lands, the event stream is readable directly:
+
+```sh
+cargo run --example fake_indexer --features viz
+websocat ws://127.0.0.1:9999/ws
+```
+
+The first frame is the complete state:
+
+```json
+{"type":"snapshot","ts_ms":1785810000000,"nodes":[...],"jobs":[...],"dropped_events":0}
+```
+
+Every frame after it is a coalesced delta covering only what changed:
+
+```json
+{"type":"patch","ts_ms":1785810000100,"nodes":[...],"jobs":[...],"removed_jobs":["block_1"],"dropped_events":0}
+```
+
+A client that stops reading is disconnected rather than sent a stream with a
+gap in it; reconnecting gets a fresh snapshot.
 
 ## Off by default
 
