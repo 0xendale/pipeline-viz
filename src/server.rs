@@ -56,13 +56,40 @@ async fn websocket_upgrade(
 }
 
 /// One task per connected dashboard client.
+///
+/// Subscription happens *before* the snapshot is taken, so no patch emitted
+/// during setup is lost. The cost is that the buffer may hold patches older
+/// than the snapshot; those are discarded by timestamp, because patch entries
+/// carry whole values and replaying an old one would roll state backwards.
 async fn client_loop(mut socket: WebSocket, state: ServerState) {
+    let mut patches = state.collector.subscribe();
     let snapshot = state.collector.snapshot();
+    let snapshot_ts = snapshot.ts_ms;
 
     let Ok(encoded) = serde_json::to_string(&ServerMessage::Snapshot(snapshot)) else {
         return;
     };
-    // A send failure means the client is gone, which needs no handling
-    // beyond ending this task.
-    let _ = socket.send(Message::Text(encoded.into())).await;
+    if socket.send(Message::Text(encoded.into())).await.is_err() {
+        return;
+    }
+
+    loop {
+        match patches.recv().await {
+            Ok(message) => {
+                if let ServerMessage::Patch(patch) = message.as_ref() {
+                    if patch.ts_ms < snapshot_ts {
+                        continue;
+                    }
+                }
+                let Ok(encoded) = serde_json::to_string(message.as_ref()) else {
+                    continue;
+                };
+                if socket.send(Message::Text(encoded.into())).await.is_err() {
+                    return;
+                }
+            }
+            // Handled in Task 4.
+            Err(_) => return,
+        }
+    }
 }

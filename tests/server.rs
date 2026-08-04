@@ -127,3 +127,61 @@ async fn a_connecting_client_receives_full_state_first() {
     assert_eq!(first["jobs"][0]["phase"], "held");
     assert_eq!(first["jobs"][0]["reason"], "Waiting for finality");
 }
+
+#[tokio::test]
+async fn changes_after_the_snapshot_arrive_as_patches() {
+    let tracker = tracker();
+    let mut stream = connect(&tracker).await;
+
+    let first = next_json(&mut stream).await;
+    assert_eq!(first["type"], "snapshot");
+    assert_eq!(first["jobs"].as_array().unwrap().len(), 0);
+
+    let mut job = tracker
+        .job("indexer")
+        .id("block_5")
+        .job_type("Block")
+        .start();
+    job.hold("Decoding receipts");
+
+    let patch = next_json(&mut stream).await;
+    assert_eq!(patch["type"], "patch");
+    assert_eq!(patch["jobs"][0]["job_id"], "block_5");
+    assert_eq!(patch["jobs"][0]["phase"], "held");
+    assert_eq!(patch["jobs"][0]["reason"], "Decoding receipts");
+}
+
+#[tokio::test]
+async fn a_completed_item_is_reported_as_a_removal() {
+    let tracker = tracker();
+    let mut stream = connect(&tracker).await;
+    assert_eq!(next_json(&mut stream).await["type"], "snapshot");
+
+    tracker.job("indexer").id("block_6").start().complete();
+
+    // The enter and the completion coalesce into a single tick, so the item
+    // is only ever reported as removed.
+    let patch = next_json(&mut stream).await;
+    assert_eq!(patch["type"], "patch");
+    assert_eq!(patch["removed_jobs"][0], "block_6");
+}
+
+#[tokio::test]
+async fn two_clients_both_receive_the_same_patches() {
+    let tracker = tracker();
+    let mut first_client = connect(&tracker).await;
+    let mut second_client = connect(&tracker).await;
+    assert_eq!(next_json(&mut first_client).await["type"], "snapshot");
+    assert_eq!(next_json(&mut second_client).await["type"], "snapshot");
+
+    tracker.job("indexer").id("block_8").start();
+
+    assert_eq!(
+        next_json(&mut first_client).await["jobs"][0]["job_id"],
+        "block_8"
+    );
+    assert_eq!(
+        next_json(&mut second_client).await["jobs"][0]["job_id"],
+        "block_8"
+    );
+}

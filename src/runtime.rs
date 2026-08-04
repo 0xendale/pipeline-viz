@@ -38,7 +38,6 @@ impl CollectorHandle {
         state.snapshot(now_ms())
     }
 
-    #[allow(dead_code)] // Consumed by the /ws handler once patch streaming lands.
     pub(crate) fn subscribe(&self) -> broadcast::Receiver<Arc<ServerMessage>> {
         self.patches.subscribe()
     }
