@@ -88,8 +88,15 @@ async fn client_loop(mut socket: WebSocket, state: ServerState) {
                     return;
                 }
             }
-            // Handled in Task 4.
-            Err(_) => return,
+            // The client stopped reading and missed messages. Closing forces a
+            // reconnect, which gets a fresh snapshot; continuing would deliver
+            // a stream with an invisible gap and leave the client silently wrong.
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                let _ = socket.send(Message::Close(None)).await;
+                return;
+            }
+            // The collector shut down; the host pipeline is finished with us.
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
         }
     }
 }

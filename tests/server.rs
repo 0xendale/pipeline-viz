@@ -185,3 +185,47 @@ async fn two_clients_both_receive_the_same_patches() {
         "block_8"
     );
 }
+
+#[tokio::test]
+async fn a_client_that_stops_reading_is_disconnected_rather_than_desynchronized() {
+    let tracker = PipelineTracker::builder()
+        .bind_port(0)
+        .tick(Duration::from_millis(1))
+        .start_background()
+        .expect("started inside a runtime");
+
+    let mut stream = connect(&tracker).await;
+    assert_eq!(next_json(&mut stream).await["type"], "snapshot");
+
+    // Never read again, while generating far more patch data than the kernel's
+    // socket buffers can hold. This loop occupies the task, so nothing drains
+    // the client side until it returns; bulky metadata makes the server's send
+    // side block quickly, after which the 256-message broadcast buffer
+    // overruns. With small items the buffers can absorb the whole flood and no
+    // lag ever occurs.
+    for index in 0..30_000_u64 {
+        tracker
+            .job("indexer")
+            .id(index)
+            .meta("payload", "x".repeat(1024))
+            .start();
+        if index % 100 == 0 {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    }
+
+    // Drain until the server closes the connection. It must close rather than
+    // continue with a gap.
+    let closed = tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(frame) = stream.next().await {
+            if frame.is_err() || matches!(frame, Ok(Message::Close(_))) {
+                return true;
+            }
+        }
+        true
+    })
+    .await
+    .expect("the server closes the connection rather than hanging");
+
+    assert!(closed);
+}
