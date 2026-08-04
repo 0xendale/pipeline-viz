@@ -56,6 +56,7 @@ pub struct TrackerBuilder {
     port: u16,
     channel_capacity: usize,
     tick: Duration,
+    process_metrics: bool,
 }
 
 impl Default for TrackerBuilder {
@@ -64,6 +65,7 @@ impl Default for TrackerBuilder {
             port: 9999,
             channel_capacity: DEFAULT_CHANNEL_CAPACITY,
             tick: DEFAULT_TICK,
+            process_metrics: true,
         }
     }
 }
@@ -87,6 +89,15 @@ impl TrackerBuilder {
         self
     }
 
+    /// Whether to sample process-wide CPU and RAM once a second. On by default.
+    ///
+    /// Reports the whole process, never a single node: nodes share one process
+    /// and one thread pool, so per-node attribution is not measurable.
+    pub fn enable_process_metrics(mut self, enabled: bool) -> Self {
+        self.process_metrics = enabled;
+        self
+    }
+
     /// Start the collector and the dashboard server on the current Tokio runtime.
     ///
     /// Binding happens here rather than inside the spawned task so the caller
@@ -101,6 +112,10 @@ impl TrackerBuilder {
         let (sender, receiver) = mpsc::channel(self.channel_capacity);
         let dropped = Arc::new(AtomicU64::new(0));
         let collector = spawn_collector(receiver, Arc::clone(&dropped), self.tick);
+
+        if self.process_metrics {
+            crate::process::spawn_sampler(sender.clone());
+        }
 
         let listener = std::net::TcpListener::bind(("127.0.0.1", self.port));
         let (bound_port, serving) = match listener {

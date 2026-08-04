@@ -104,6 +104,18 @@ impl NodeState {
     }
 }
 
+/// Resource use of the **whole process**, not of any single node.
+///
+/// Nodes are logical stages sharing one process and one thread pool, so a
+/// per-node CPU or RAM figure cannot be attributed honestly. This is the honest
+/// version of that number, and the dashboard labels it as process-wide.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "viz", derive(Serialize, Deserialize))]
+pub struct ProcessStats {
+    pub cpu_pct: f64,
+    pub ram_mb: f64,
+}
+
 /// Complete state, sent once when a dashboard client connects.
 ///
 /// Sending full state on connect is what lets the protocol drop event replay
@@ -115,6 +127,8 @@ pub struct Snapshot {
     pub nodes: Vec<NodeState>,
     pub jobs: Vec<JobState>,
     pub dropped_events: u64,
+    /// `None` when process metrics are disabled or not yet sampled.
+    pub process: Option<ProcessStats>,
 }
 
 /// Coalesced delta, emitted on the collector tick.
@@ -130,6 +144,8 @@ pub struct Patch {
     pub jobs: Vec<JobState>,
     pub removed_jobs: Vec<JobId>,
     pub dropped_events: u64,
+    /// `None` when the reading has not changed since the previous patch.
+    pub process: Option<ProcessStats>,
 }
 
 /// Everything the server can push to a client.

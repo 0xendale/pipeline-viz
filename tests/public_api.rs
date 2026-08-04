@@ -186,3 +186,35 @@ async fn wire_format_is_stable() {
     assert_eq!(job["phase"], "held");
     assert_eq!(job["reason"], "Waiting for finality");
 }
+
+#[tokio::test]
+async fn process_metrics_reach_the_snapshot() {
+    let tracker = PipelineTracker::builder()
+        .bind_port(0)
+        .tick(Duration::from_millis(10))
+        .start_background()
+        .expect("started inside a runtime");
+
+    // The sampler's first tick lands after one second, and CPU needs a second
+    // refresh before it means anything.
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+
+    let process = tracker
+        .snapshot()
+        .process
+        .expect("process metrics are on by default");
+    assert!(process.ram_mb > 0.0, "a running process uses memory");
+    assert!(process.cpu_pct >= 0.0);
+}
+
+#[tokio::test]
+async fn process_metrics_can_be_turned_off() {
+    let tracker = PipelineTracker::builder()
+        .bind_port(0)
+        .enable_process_metrics(false)
+        .start_background()
+        .expect("started inside a runtime");
+
+    tokio::time::sleep(Duration::from_millis(1_200)).await;
+    assert!(tracker.snapshot().process.is_none());
+}

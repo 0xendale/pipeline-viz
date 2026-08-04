@@ -44,6 +44,11 @@ impl TrackerBuilder {
     }
 
     #[inline(always)]
+    pub fn enable_process_metrics(self, _enabled: bool) -> Self {
+        self
+    }
+
+    #[inline(always)]
     pub fn start_background(self) -> Result<PipelineTracker, Error> {
         Ok(PipelineTracker)
     }
@@ -109,6 +114,7 @@ impl PipelineTracker {
             nodes: Vec::new(),
             jobs: Vec::new(),
             dropped_events: 0,
+            process: None,
         }
     }
 }

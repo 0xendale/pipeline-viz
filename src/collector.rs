@@ -8,7 +8,9 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::event::Event;
-use crate::model::{JobId, JobPhase, JobState, NodeCounters, NodeId, NodeState, Patch, Snapshot};
+use crate::model::{
+    JobId, JobPhase, JobState, NodeCounters, NodeId, NodeState, Patch, ProcessStats, Snapshot,
+};
 
 /// Rolling window for throughput and percentiles.
 const WINDOW_MS: u64 = 60_000;
@@ -30,6 +32,8 @@ pub(crate) struct CollectorState {
     last_patch_dropped: u64,
     started_at_ms: Option<u64>,
     latest_ts_ms: u64,
+    process: Option<ProcessStats>,
+    last_patch_process: Option<ProcessStats>,
 }
 
 impl CollectorState {
@@ -156,6 +160,12 @@ impl CollectorState {
                 }
                 self.dirty_nodes.insert(node_id);
             }
+
+            Event::ProcessStats {
+                cpu_pct, ram_mb, ..
+            } => {
+                self.process = Some(ProcessStats { cpu_pct, ram_mb });
+            }
         }
     }
 
@@ -169,10 +179,12 @@ impl CollectorState {
         self.recompute_counters(now_ms);
 
         let dropped_changed = self.dropped_events != self.last_patch_dropped;
+        let process_changed = self.process != self.last_patch_process;
         if self.dirty_nodes.is_empty()
             && self.dirty_jobs.is_empty()
             && self.removed_jobs.is_empty()
             && !dropped_changed
+            && !process_changed
         {
             return None;
         }
@@ -191,12 +203,17 @@ impl CollectorState {
 
         self.last_patch_dropped = self.dropped_events;
 
+        // Omitted when unchanged, so the gauge is not resent on every tick.
+        let process = if process_changed { self.process } else { None };
+        self.last_patch_process = self.process;
+
         Some(Patch {
             ts_ms: now_ms,
             nodes,
             jobs,
             removed_jobs,
             dropped_events: self.dropped_events,
+            process,
         })
     }
 
@@ -208,6 +225,7 @@ impl CollectorState {
             nodes: self.nodes.values().cloned().collect(),
             jobs: self.jobs.values().cloned().collect(),
             dropped_events: self.dropped_events,
+            process: self.process,
         }
     }
 
@@ -638,6 +656,62 @@ mod tests {
 
         let patch = state.take_patch(10).unwrap();
         assert_eq!(node(&patch, "indexer").counters.queue_depth, 12);
+    }
+
+    #[test]
+    fn process_stats_are_reported_and_only_resent_when_they_change() {
+        let mut state = state_with_nodes();
+
+        state.apply(Event::ProcessStats {
+            cpu_pct: 12.4,
+            ram_mb: 148.2,
+            at_ms: 100,
+        });
+        let patch = state.take_patch(100).unwrap();
+        let process = patch.process.expect("first sample is a change");
+        assert_eq!(process.cpu_pct, 12.4);
+        assert_eq!(process.ram_mb, 148.2);
+
+        state.apply(Event::ProcessStats {
+            cpu_pct: 12.4,
+            ram_mb: 148.2,
+            at_ms: 200,
+        });
+        assert!(
+            state.take_patch(200).is_none(),
+            "an unchanged sample is not news"
+        );
+    }
+
+    #[test]
+    fn a_patch_omits_process_stats_that_did_not_change() {
+        let mut state = state_with_nodes();
+        state.apply(Event::ProcessStats {
+            cpu_pct: 12.4,
+            ram_mb: 148.2,
+            at_ms: 100,
+        });
+        state.take_patch(100);
+
+        state.apply(enter("block_1", "indexer", 110));
+        let patch = state.take_patch(110).unwrap();
+        assert!(
+            patch.process.is_none(),
+            "an unchanged reading is not resent on every tick"
+        );
+    }
+
+    #[test]
+    fn snapshot_includes_the_latest_process_stats() {
+        let mut state = state_with_nodes();
+        state.apply(Event::ProcessStats {
+            cpu_pct: 9.0,
+            ram_mb: 64.0,
+            at_ms: 10,
+        });
+
+        let snapshot = state.snapshot(10);
+        assert_eq!(snapshot.process.map(|p| p.ram_mb), Some(64.0));
     }
 
     #[test]

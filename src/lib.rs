@@ -49,6 +49,8 @@ mod collector;
 #[cfg(feature = "viz")]
 mod event;
 #[cfg(feature = "viz")]
+mod process;
+#[cfg(feature = "viz")]
 mod runtime;
 #[cfg(feature = "viz")]
 mod server;
