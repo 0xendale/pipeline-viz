@@ -10,6 +10,7 @@ dist/
 
 # Agent-local state — never commit
 .omc/
+.omo/
 .claude/
 .superpowers/
 .cursor/
