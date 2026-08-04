@@ -29,3 +29,6 @@ pipeline-viz-architecture.pdf
 .idea/
 .vscode/
 *.swp
+
+ui/node_modules/
+ui/dist/

@@ -67,6 +67,6 @@ pub use tracker::{Error, JobBuilder, JobGuard, PipelineTracker, TrackerBuilder};
 pub use noop::{Error, JobBuilder, JobGuard, PipelineTracker, TrackerBuilder};
 
 pub use model::{
-    JobId, JobPhase, JobState, NodeCounters, NodeId, NodeKind, NodeState, Patch, ServerMessage,
-    Snapshot,
+    JobId, JobPhase, JobState, NodeCounters, NodeId, NodeKind, NodeState, Patch, ProcessStats,
+    ServerMessage, Snapshot,
 };

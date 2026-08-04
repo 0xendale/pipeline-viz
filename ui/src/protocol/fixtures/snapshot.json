@@ -1,0 +1,41 @@
+{
+  "type": "snapshot",
+  "ts_ms": 1785810000000,
+  "nodes": [
+    {
+      "node_id": "committer",
+      "display_name": "Database Committer",
+      "kind": "sink",
+      "inputs": [
+        "validator"
+      ],
+      "counters": {
+        "in_flight": 3,
+        "queue_depth": 12,
+        "left_total": 1402,
+        "throughput_per_sec": 2.49,
+        "p50_ms": 122,
+        "p95_ms": 310
+      }
+    }
+  ],
+  "jobs": [
+    {
+      "job_id": "2049102",
+      "job_type": "Block",
+      "current_node": "committer",
+      "phase": "held",
+      "reason": "Waiting for finality (2/12 confirmations)",
+      "entered_node_at_ms": 1785810000000,
+      "created_at_ms": 1785809999000,
+      "meta": {
+        "tx_count": "142"
+      }
+    }
+  ],
+  "dropped_events": 0,
+  "process": {
+    "cpu_pct": 12.4,
+    "ram_mb": 148.2
+  }
+}
