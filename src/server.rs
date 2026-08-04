@@ -5,7 +5,6 @@ use axum::extract::State;
 use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
-use futures_util::SinkExt;
 
 use crate::model::ServerMessage;
 use crate::runtime::CollectorHandle;
@@ -49,7 +48,10 @@ async fn index() -> &'static str {
     "pipeline-viz is running. The dashboard UI is not built yet; connect to /ws for the event stream."
 }
 
-async fn websocket_upgrade(upgrade: WebSocketUpgrade, State(state): State<ServerState>) -> Response {
+async fn websocket_upgrade(
+    upgrade: WebSocketUpgrade,
+    State(state): State<ServerState>,
+) -> Response {
     upgrade.on_upgrade(move |socket| client_loop(socket, state))
 }
 
