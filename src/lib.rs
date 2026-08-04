@@ -51,6 +51,8 @@ mod event;
 #[cfg(feature = "viz")]
 mod runtime;
 #[cfg(feature = "viz")]
+mod server;
+#[cfg(feature = "viz")]
 mod tracker;
 
 #[cfg(not(feature = "viz"))]
