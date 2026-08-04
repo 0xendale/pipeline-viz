@@ -1,0 +1,21 @@
+[package]
+name = "pipeline-viz"
+version = "0.1.0"
+edition = "2021"
+description = "Live item-level visibility for Rust data pipelines: see where every work item is and why it is stuck."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/0xendale/pipeline-viz"
+keywords = ["pipeline", "observability", "telemetry", "visualization", "etl"]
+categories = ["development-tools::debugging", "visualization"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"], optional = true }
+tokio = { version = "1", features = ["sync", "rt", "time", "macros"], optional = true }
+
+[dev-dependencies]
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[features]
+default = []
+viz = ["dep:serde", "dep:tokio"]
