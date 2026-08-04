@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { nodeHealth, oldestHeld, STALL_THRESHOLD_MS } from "./health";
+import {
+  abandonedCount,
+  inFlightCount,
+  nodeHealth,
+  oldestHeld,
+  STALL_THRESHOLD_MS,
+} from "./health";
 import type { JobState, NodeState } from "../protocol/types";
 
 const node = (in_flight: number): NodeState => ({
@@ -102,7 +108,43 @@ describe("oldestHeld", () => {
     expect(oldestHeld([active("block_1", 0)], 5)).toEqual([]);
   });
 
-  it("includes abandoned items, which are the worst case of stuck", () => {
+  it("includes abandoned items once the live holds run out", () => {
     expect(oldestHeld([abandoned("block_1", 0)], 5).map((job) => job.job_id)).toEqual(["block_1"]);
+  });
+
+  it("ranks live holds ahead of older abandoned items", () => {
+    // Abandoned items never leave the pipeline, so ordering on age alone lets
+    // them accumulate until they occupy every slot and the strip reports
+    // nothing that is actually happening.
+    const jobs = [
+      abandoned("dead_1", now - 500_000),
+      abandoned("dead_2", now - 400_000),
+      held("stuck_now", now - 20_000),
+    ];
+
+    expect(oldestHeld(jobs, 5).map((job) => job.job_id)).toEqual(["stuck_now", "dead_1", "dead_2"]);
+  });
+
+  it("still surfaces abandoned items when the strip has room", () => {
+    const jobs = [abandoned("dead_1", now - 500_000), held("stuck_now", now - 20_000)];
+    expect(oldestHeld(jobs, 5)).toHaveLength(2);
+  });
+});
+
+describe("job counts", () => {
+  const now = 100_000;
+
+  it("excludes abandoned items from the in-flight count", () => {
+    // An abandoned item is not moving, so counting it as in flight overstates
+    // how much work the pipeline is actually carrying.
+    const jobs = [active("block_1", now), held("block_2", now), abandoned("block_3", now)];
+
+    expect(inFlightCount(jobs)).toBe(2);
+    expect(abandonedCount(jobs)).toBe(1);
+  });
+
+  it("counts nothing in an empty pipeline", () => {
+    expect(inFlightCount([])).toBe(0);
+    expect(abandonedCount([])).toBe(0);
   });
 });

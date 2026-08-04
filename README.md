@@ -16,8 +16,8 @@ Live item-level visibility for Rust data pipelines.
 |---|---|
 | 1. Instrumentation API + state collector | Done |
 | 2. Embedded HTTP/WebSocket server | Done |
-| 3. Dashboard UI | Next |
-| 4. Single-binary embedding, macros, publish | Planned |
+| 3. Dashboard UI | Done |
+| 4. Single-binary embedding, macros, publish | Next |
 
 The dashboard UI does not exist yet. Today the crate serves the event stream over a WebSocket; see [Watching the stream](#watching-the-stream).
 
@@ -82,6 +82,26 @@ Every frame after it is a coalesced delta covering only what changed:
 
 A client that stops reading is disconnected rather than sent a stream with a
 gap in it; reconnecting gets a fresh snapshot.
+
+## The dashboard
+
+Until the UI is embedded in the binary (milestone 4), run it from source:
+
+```sh
+cargo run --example fake_indexer --features viz   # terminal one
+cd ui && npm install && npm run dev               # terminal two
+```
+
+Then open `http://localhost:5173`. Vite proxies `/ws` to the Rust server on
+9999, so the browser stays on a single origin.
+
+The dashboard shows the pipeline graph with live per-node counters, a
+persistent strip of the longest-waiting items with their hold reasons, and a
+per-node drill-down listing what is sitting there and why. Node borders turn
+amber when an item has been at that node for more than ten seconds.
+
+The CPU and RAM figures in the header are **whole-process** and labelled as
+such — see [What it measures](#what-it-measures).
 
 ## Off by default
 

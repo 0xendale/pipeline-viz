@@ -29,10 +29,30 @@ export function nodeHealth(node: NodeState, jobs: JobState[], nowMs: number): He
  * This is the direct answer to "what is stuck right now". Node colour alone
  * makes the user guess which node to open first; on a wide graph that is the
  * difference between seeing the answer and hunting for it.
+ *
+ * Held items rank ahead of abandoned ones regardless of age. Abandoned items
+ * never leave the pipeline, so sorting on age alone lets them accumulate and
+ * permanently occupy every slot — which is exactly when the strip stops
+ * reporting anything live. They still appear once the live holds run out.
  */
 export function oldestHeld(jobs: JobState[], limit: number): JobState[] {
+  const priority = (job: JobState) => (job.phase === "held" ? 0 : 1);
+
   return jobs
     .filter((job) => job.phase === "held" || job.phase === "abandoned")
-    .sort((left, right) => left.entered_node_at_ms - right.entered_node_at_ms)
+    .sort((left, right) => {
+      const byPhase = priority(left) - priority(right);
+      return byPhase !== 0 ? byPhase : left.entered_node_at_ms - right.entered_node_at_ms;
+    })
     .slice(0, limit);
+}
+
+/** Items in flight, excluding abandoned ones — those are no longer moving. */
+export function inFlightCount(jobs: JobState[]): number {
+  return jobs.filter((job) => job.phase !== "abandoned").length;
+}
+
+/** Items dropped without completing. Almost always a bug in the host pipeline. */
+export function abandonedCount(jobs: JobState[]): number {
+  return jobs.filter((job) => job.phase === "abandoned").length;
 }
