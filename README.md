@@ -16,10 +16,10 @@ Live item-level visibility for Rust data pipelines.
 |---|---|
 | 1. Instrumentation API + state collector | Done |
 | 2. Embedded HTTP/WebSocket server | Done |
-| 3. Dashboard UI | Done |
+| 3. Dashboard UI — simple + 3D templates | Done |
 | 4. Single-binary embedding, macros, publish | Next |
 
-The dashboard UI does not exist yet. Today the crate serves the event stream over a WebSocket; see [Watching the stream](#watching-the-stream).
+The crate serves the event stream over a WebSocket; see [Watching the stream](#watching-the-stream). Two dashboard templates consume it — see [The dashboard](#the-dashboard).
 
 ## Usage
 
@@ -61,7 +61,7 @@ An item that never reaches `complete()` — because a `?` returned early, say �
 
 ## Watching the stream
 
-Until the dashboard UI lands, the event stream is readable directly:
+The event stream is also readable directly:
 
 ```sh
 cargo run --example fake_indexer --features viz
@@ -85,17 +85,31 @@ gap in it; reconnecting gets a fresh snapshot.
 
 ## The dashboard
 
-Until the UI is embedded in the binary (milestone 4), run it from source:
+Two UI templates consume the WebSocket protocol. Until the UI is embedded in
+the binary (milestone 4), run them from source:
+
+| Template | Description | Dev port |
+|---|---|---|
+| `simple` | Dense 2D operational dashboard | 5173 |
+| `three-d` | Immersive WebGL dashboard | 5174 |
+
+Run the Rust producer in one terminal:
 
 ```sh
 cargo run --example fake_indexer --features viz   # terminal one
-cd ui && npm install && npm run dev               # terminal two
 ```
 
-Then open `http://localhost:5173`. Vite proxies `/ws` to the Rust server on
-9999, so the browser stays on a single origin.
+Install once, then start a template in a second terminal:
 
-The dashboard shows the pipeline graph with live per-node counters, a
+```sh
+npm install
+npm run simple:dev      # or: npm run three-d:dev
+```
+
+Then open `http://localhost:5173` (or `:5174`). Vite proxies `/ws` to the Rust
+server on 9999, so the browser stays on a single origin.
+
+Both dashboards show the pipeline graph with live per-node counters, a
 persistent strip of the longest-waiting items with their hold reasons, and a
 per-node drill-down listing what is sitting there and why. Node borders turn
 amber when an item has been at that node for more than ten seconds.
@@ -139,6 +153,9 @@ cargo test --features viz
 cargo test --no-default-features
 cargo clippy --features viz --all-targets -- -D warnings
 cargo fmt --check
+npm run protocol:test && npm run protocol:typecheck
+npm run simple:test && npm run simple:typecheck && npm run simple:lint && npm run simple:build
+npm run three-d:test && npm run three-d:typecheck && npm run three-d:lint && npm run three-d:build
 ```
 
 Both feature configurations must build and pass on their own.
