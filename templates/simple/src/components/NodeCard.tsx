@@ -1,8 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import type { NodeState } from "../protocol/types";
-import type { Health } from "../graph/health";
+import type { Health, NodeState } from "@pipeline-viz/protocol";
 import type { Tape, TapeCell } from "../graph/tape";
-import { formatAge } from "../format";
+import { formatAge } from "@pipeline-viz/protocol";
 
 export interface NodeCardData extends Record<string, unknown> {
   node: NodeState;

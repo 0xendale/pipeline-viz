@@ -2,7 +2,7 @@ import { Header } from "./components/Header";
 import { HeldStrip } from "./components/HeldStrip";
 import { NodeDetail } from "./components/NodeDetail";
 import { PipelineGraph } from "./components/PipelineGraph";
-import { useLiveStream } from "./net/useLiveStream";
+import { useLiveStream } from "@pipeline-viz/protocol";
 import { useNow } from "./useNow";
 
 export default function App() {

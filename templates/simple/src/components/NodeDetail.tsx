@@ -1,7 +1,10 @@
 import { useMemo } from "react";
-import { usePipelineStore } from "../store/store";
-import { formatAge, holdReason } from "../format";
-import type { JobState } from "../protocol/types";
+import {
+  formatAge,
+  holdReason,
+  usePipelineStore,
+  type JobState,
+} from "@pipeline-viz/protocol";
 
 const MARK: Record<JobState["phase"], string> = {
   active: "bg-ink",

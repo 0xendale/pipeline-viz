@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { layoutNodes } from "./layout";
-import type { NodeState } from "../protocol/types";
+import type { NodeState } from "@pipeline-viz/protocol";
 
 const node = (node_id: string, inputs: string[]): NodeState => ({
   node_id,

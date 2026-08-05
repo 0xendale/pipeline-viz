@@ -1,9 +1,8 @@
 import { useMemo } from "react";
 import { ReactFlow } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { usePipelineStore } from "../store/store";
+import { nodeHealth, usePipelineStore } from "@pipeline-viz/protocol";
 import { layoutNodes } from "../graph/layout";
-import { nodeHealth } from "../graph/health";
 import { tapeFor, tapePeriodSeconds } from "../graph/tape";
 import { NodeCard, TAPE_CAPACITY, type PipelineNode } from "./NodeCard";
 import { TapeEdgeLine, type TapeEdge } from "./TapeEdge";

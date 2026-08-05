@@ -1,4 +1,4 @@
-import type { NodeState } from "../protocol/types";
+import type { NodeState } from "@pipeline-viz/protocol";
 
 // Wide enough that the tape running between two stages is a visible span
 // rather than a hairline join. The tape is the thing that shows work moving,

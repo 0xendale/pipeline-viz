@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { tapeFor, tapePeriodSeconds } from "./tape";
-import type { JobState } from "../protocol/types";
+import type { JobState } from "@pipeline-viz/protocol";
 
 const at = (job_id: string, current_node: string, entered_node_at_ms: number): JobState => ({
   job_id,

@@ -1,4 +1,4 @@
-import type { JobState } from "../protocol/types";
+import type { JobState } from "@pipeline-viz/protocol";
 
 /** One item, as it appears in a node's tape well. */
 export interface TapeCell {

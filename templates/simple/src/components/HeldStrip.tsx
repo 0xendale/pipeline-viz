@@ -1,7 +1,10 @@
 import { useMemo } from "react";
-import { usePipelineStore } from "../store/store";
-import { oldestHeld } from "../graph/health";
-import { formatAge, holdReason } from "../format";
+import {
+  formatAge,
+  holdReason,
+  oldestHeld,
+  usePipelineStore,
+} from "@pipeline-viz/protocol";
 
 const LIMIT = 5;
 

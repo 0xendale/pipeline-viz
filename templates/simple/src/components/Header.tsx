@@ -1,6 +1,9 @@
 import { useMemo } from "react";
-import { usePipelineStore } from "../store/store";
-import { abandonedCount, inFlightCount } from "../graph/health";
+import {
+  abandonedCount,
+  inFlightCount,
+  usePipelineStore,
+} from "@pipeline-viz/protocol";
 
 const CONNECTION = {
   connecting: { text: "connecting", tint: "bg-muted" },

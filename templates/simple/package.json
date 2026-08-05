@@ -1,5 +1,5 @@
 {
-  "name": "pipeline-viz-ui",
+  "name": "@pipeline-viz/simple",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@pipeline-viz/protocol": "0.0.0",
     "@xyflow/react": "^12.11.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
