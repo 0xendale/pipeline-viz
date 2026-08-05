@@ -1,0 +1,22 @@
+{
+  "name": "pipeline-viz-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "templates/*"
+  ],
+  "scripts": {
+    "simple:build": "npm run build --workspace=@pipeline-viz/simple",
+    "simple:dev": "npm run dev --workspace=@pipeline-viz/simple",
+    "simple:lint": "npm run lint --workspace=@pipeline-viz/simple",
+    "simple:test": "npm run test --workspace=@pipeline-viz/simple",
+    "simple:typecheck": "npm run typecheck --workspace=@pipeline-viz/simple",
+    "three-d:build": "npm run build --workspace=@pipeline-viz/three-d",
+    "three-d:dev": "npm run dev --workspace=@pipeline-viz/three-d",
+    "three-d:lint": "npm run lint --workspace=@pipeline-viz/three-d",
+    "three-d:test": "npm run test --workspace=@pipeline-viz/three-d",
+    "three-d:typecheck": "npm run typecheck --workspace=@pipeline-viz/three-d",
+    "protocol:test": "npm run test --workspace=@pipeline-viz/protocol",
+    "protocol:typecheck": "npm run typecheck --workspace=@pipeline-viz/protocol"
+  }
+}
