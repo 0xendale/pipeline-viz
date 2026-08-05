@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+/* Shared instrument tokens — see DESIGN.md section 6. Identical to the simple
+   template on purpose: both dashboards are the same instrument in two skins. */
+@theme {
+  --color-chassis: #1c1b19;
+  --color-panel: #232220;
+  --color-well: #2a2825;
+  --color-rule: #383530;
+
+  --color-ink: #7fd1c1; /* moving */
+  --color-signal: #e8a33d; /* held, with a stated reason */
+  --color-fault: #c25b4a; /* abandoned: dropped without completing */
+
+  --color-paper: #e6e1d8;
+  --color-muted: #8a857c;
+
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-chassis);
+  color: var(--color-paper);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+/* Micro-labels. Uppercase and widely tracked so they read as instrument
+   engraving rather than as content. */
+.engraved {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* The stage fills the viewport; HUD panels float above it. */
+pipeline-stage {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* HUD panels ride over the WebGL canvas. Translucent chassis reads as glass
+   over the scene instead of a flat card. */
+.hud-panel {
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--color-rule);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  pipeline-stage {
+    /* The stage pauses its own loop when hidden; reduced motion is handled
+       inside pipeline-stage.js via visibilitychange. Nothing to add here. */
+  }
+}
