@@ -1,6 +1,6 @@
 //! Keeps the Rust wire format and the TypeScript model from drifting apart.
 //!
-//! The fixtures under `ui/src/protocol/fixtures/` are parsed by the frontend's
+//! The fixtures under `packages/protocol/src/fixtures/` are parsed by the frontend's
 //! own tests. Nothing else forces two descriptions of one format, in two
 //! languages, to agree — so a change to the Rust model fails here, and a change
 //! that the TypeScript model has not caught up with fails there.
@@ -51,7 +51,7 @@ fn sample_job() -> JobState {
 
 fn check(name: &str, value: &ServerMessage) {
     let encoded = serde_json::to_string_pretty(value).expect("serializes") + "\n";
-    let path = Path::new("ui/src/protocol/fixtures").join(name);
+    let path = Path::new("packages/protocol/src/fixtures").join(name);
 
     if std::env::var("UPDATE_FIXTURES").is_ok() {
         std::fs::create_dir_all(path.parent().expect("has a parent")).expect("creates the dir");
@@ -68,7 +68,7 @@ fn check(name: &str, value: &ServerMessage) {
 
     assert_eq!(
         existing, encoded,
-        "the wire format changed. Update ui/src/protocol/types.ts to match, then \
+        "the wire format changed. Update packages/protocol/src/types.ts to match, then \
          regenerate with UPDATE_FIXTURES=1"
     );
 }
