@@ -13,6 +13,8 @@ export function Header() {
     0,
   );
 
+  // The connection word sits in the title, not as a bare dot floating between
+  // groups: a stalled socket and a stalled pipeline look identical otherwise.
   const dot = {
     connecting: "bg-muted",
     live: "bg-ink",
@@ -22,12 +24,12 @@ export function Header() {
   return (
     <header className="flex h-11 shrink-0 items-center gap-8 border-b border-rule bg-panel px-4">
       <div className="flex items-center gap-2">
-        <span className="h-1.5 w-1.5 bg-ink" />
+        <span className={`h-1.5 w-1.5 ${dot}`} />
         <span className="text-[13px] text-paper">pipeline-viz</span>
-        <span className="engraved">live · cyber-physical</span>
+        <span className={`engraved ${connection === "live" ? "" : "text-signal"}`}>
+          {connection} · cyber-physical
+        </span>
       </div>
-
-      <span className={`h-2 w-2 rounded-full ${dot}`} title={connection} />
 
       <div className="flex items-center gap-8">
         <Metric label="in flight" value={inFlight} />
@@ -46,9 +48,13 @@ export function Header() {
             </span>
           </>
         ) : null}
-        <span className="engraved" title="Events dropped because the channel was full">
-          dropped <span className="text-paper">{dropped}</span>
-        </span>
+        {/* Silent at zero. A non-zero count means the dashboard is missing events,
+            which is a fault, not a routine gauge. */}
+        {dropped > 0 ? (
+          <span className="engraved" title="Events dropped because the channel was full">
+            dropped <span className="text-fault">{dropped}</span>
+          </span>
+        ) : null}
       </div>
     </header>
   );

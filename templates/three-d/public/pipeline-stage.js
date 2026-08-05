@@ -128,7 +128,11 @@
       var w = this.clientWidth || 1, h = this.clientHeight || 1;
       var cap = this.mode === "detail" ? 2 : 1.35;
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, cap));
-      this.renderer.setSize(w, h, false);
+      // updateStyle must stay on. With it off the canvas has no CSS size, so its
+      // intrinsic size — the backing store, width x pixelRatio — becomes its layout
+      // size and the scene renders devicePixelRatio-times too large on a HiDPI
+      // display, pushing the far stages off screen.
+      this.renderer.setSize(w, h, true);
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
     }
@@ -151,8 +155,10 @@
       g.fillText(sub.toUpperCase(), 256, 92);
       var tex = new T.CanvasTexture(cv);
       tex.anisotropy = 2;
-      var sprite = new T.Sprite(new T.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.9 }));
-      sprite.scale.set(4.4, 1.1, 1);
+      var sprite = new T.Sprite(new T.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.75 }));
+      // Deliberately smaller than the node body. The stage name is orientation,
+      // not the reading — the geometry and the item colours are what carry state.
+      sprite.scale.set(3.2, 0.8, 1);
       return sprite;
     }
 
@@ -605,7 +611,9 @@
     frame(now, dt) {
       var t = now / 1000;
       var detail = this.mode === "detail";
-      this.grid.material.opacity = detail ? 0.26 : 0.16;
+      // The pipeline is a thin horizontal line in a tall frame; a readable floor
+      // is what stops the surplus space reading as void instead of depth.
+      this.grid.material.opacity = detail ? 0.3 : 0.22;
 
       var o = this.orbit, T = this.T;
       o.angle += dt * (detail ? 0.035 : 0.075);

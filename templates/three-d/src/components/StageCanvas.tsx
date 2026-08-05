@@ -35,8 +35,8 @@ export function StageCanvas({ mode, selected, barHeight }: { mode: "ambient" | "
     const stage = stageRef.current;
     if (!stage) return;
     stage.setAttribute("mode", mode);
-    stage.setAttribute("pad-left", "216");
-    stage.setAttribute("pad-right", selected ? "340" : "0");
+    stage.setAttribute("pad-left", "240");
+    stage.setAttribute("pad-right", selected ? "336" : "0");
     stage.setAttribute("pad-top", "8");
     stage.setAttribute("pad-bottom", String(barHeight));
   }, [barHeight, mode, selected, mounted]);
@@ -63,7 +63,13 @@ export function StageCanvas({ mode, selected, barHeight }: { mode: "ambient" | "
 
   return (
     <div ref={hostRef} className="h-full w-full">
-      {!hasTopology ? <div className="engraved p-6">waiting for pipeline topology</div> : null}
+      {!hasTopology ? (
+        <div className="flex h-full flex-col items-center justify-center gap-2">
+          <span className="h-1.5 w-1.5 animate-pulse bg-ink" />
+          <span className="engraved">waiting for pipeline topology</span>
+          <span className="text-[11px] text-muted">the dashboard draws itself once the first node registers</span>
+        </div>
+      ) : null}
     </div>
   );
 }

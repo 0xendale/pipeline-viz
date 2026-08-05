@@ -15,14 +15,21 @@ export function NodeDetail({ nowMs }: { nowMs: number }) {
   const jobs = Object.values(jobsById);
 
   const node = selected ? nodes[selected] : undefined;
+  // Oldest first: the top of this list is the answer to "what is stuck here?".
+  const here = jobs
+    .filter((job) => job.current_node === selected)
+    .sort((a, b) => a.entered_node_at_ms - b.entered_node_at_ms);
+
+  // Nothing selected means nothing to say. An empty panel would occupy the right
+  // edge of the scene permanently and pay for itself with no reading.
+  if (!node) return null;
 
   return (
-    <aside className="pointer-events-none absolute inset-y-2 right-0 z-20 w-80">
-      {node ? (
-        <div className="hud-panel pointer-events-auto max-h-full overflow-y-auto rounded-md p-3">
+    <aside className="pointer-events-none absolute inset-y-2 right-2 z-20 w-80">
+      <div className="hud-panel pointer-events-auto max-h-full overflow-y-auto rounded-md p-3">
           <div className="mb-2 flex items-baseline justify-between gap-2 border-b border-rule pb-2">
             <h2 className="truncate text-sm text-paper">{node.display_name}</h2>
-            <button type="button" onClick={() => selectNode(null)} className="engraved shrink-0 hover:text-paper">close</button>
+            <button type="button" onClick={() => selectNode(null)} className="engraved shrink-0 hover:text-paper" title="Close (Esc)">close</button>
           </div>
           <div className="engraved mb-3">{node.node_id} · {KIND_LABEL[node.kind]}</div>
 
@@ -43,12 +50,10 @@ export function NodeDetail({ nowMs }: { nowMs: number }) {
             <dd className="text-right text-paper">{node.counters.left_total}</dd>
           </dl>
 
-          <div className="engraved mb-1 mt-3">items here</div>
-          <ul className="space-y-1 text-xs">
-            {jobs
-              .filter((job) => job.current_node === node.node_id)
-              .sort((a, b) => a.entered_node_at_ms - b.entered_node_at_ms)
-              .map((job) => {
+          <div className="engraved mb-1 mt-3">items here ({here.length})</div>
+          {here.length === 0 ? <p className="text-xs text-muted">nothing here right now</p> : null}
+          <ul className="space-y-1.5 text-xs">
+            {here.map((job) => {
                 const reason = holdReason(job);
                 const color =
                   job.phase === "abandoned"
@@ -56,26 +61,27 @@ export function NodeDetail({ nowMs }: { nowMs: number }) {
                     : job.phase === "held"
                       ? "text-signal"
                       : "text-ink";
+                // Two lines, not one. The id and the age are the identity; the
+                // reason is a sentence and gets its own line rather than being
+                // squeezed into an ellipsis next to three other fields.
                 return (
-                  <li key={job.job_id} className="flex items-baseline justify-between gap-2">
-                    <span className={`truncate ${color}`}>
-                      {job.job_id} · {job.job_type}
-                    </span>
-                    <span className="shrink-0 text-muted">
-                      {formatAge(nowMs - job.entered_node_at_ms)}
-                    </span>
-                    {reason ? <span className="max-w-40 truncate text-muted">· {reason}</span> : null}
-                    {job.meta.tx_count ? <span className="text-muted">tx {job.meta.tx_count}</span> : null}
+                  <li key={job.job_id} className="border-b border-rule/50 pb-1 last:border-0">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className={color}>{job.job_id}</span>
+                      <span className="engraved ml-auto shrink-0">{job.job_type}</span>
+                      <span className={`shrink-0 tabular-nums ${color}`}>
+                        {formatAge(nowMs - job.entered_node_at_ms)}
+                      </span>
+                    </div>
+                    {reason ? <div className="text-muted">{reason}</div> : null}
+                    {job.meta.tx_count ? (
+                      <div className="engraved">tx {job.meta.tx_count}</div>
+                    ) : null}
                   </li>
                 );
               })}
           </ul>
-        </div>
-      ) : (
-        <div className="hud-panel pointer-events-auto rounded-md p-3">
-          <p className="engraved">select a node in the scene</p>
-        </div>
-      )}
+      </div>
     </aside>
   );
 }

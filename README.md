@@ -8,6 +8,8 @@ Live item-level visibility for Rust data pipelines.
 
 `pipeline-viz` answers exactly that. Declare your stages, wrap each work item in a guard, and give a reason whenever an item is parked.
 
+![The three-d dashboard: four pipeline stages in 3D, with a stage rail on the left and a strip of the longest-waiting items along the bottom](docs/images/three-d-overview.png)
+
 ## Status
 
 **Work in progress — not yet published to crates.io.**
@@ -113,6 +115,18 @@ Both dashboards show the pipeline graph with live per-node counters, a
 persistent strip of the longest-waiting items with their hold reasons, and a
 per-node drill-down listing what is sitting there and why. Node borders turn
 amber when an item has been at that node for more than ten seconds.
+
+In `three-d`, each stage takes a form from its kind — a portal for a source, a
+prism for a transform, an archive rack for a sink — and items are physical
+objects on it: teal moving, amber held, red abandoned. Queued items orbit
+outside the stage. The rail on the left names the stall directly, so a stuck
+stage is legible without opening anything:
+
+![A stage detail panel open on the Validator, listing each item there with its age and hold reason](docs/images/three-d-stage-detail.png)
+
+Click a stage or press `1`-`9` to open it, `Esc` to close, `a` / `d` to switch
+between the ambient and detail stage modes. Drag to swing the camera, scroll to
+zoom.
 
 The CPU and RAM figures in the header are **whole-process** and labelled as
 such — see [What it measures](#what-it-measures).
