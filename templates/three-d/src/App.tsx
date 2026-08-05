@@ -1,5 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLiveStream, usePipelineStore } from "@pipeline-viz/protocol";
+import { orderNodeIds } from "./stage-sim";
 import { ControlBar, type StageMode } from "./components/ControlBar";
 import { Header } from "./components/Header";
 import { NodeDetail } from "./components/NodeDetail";
@@ -13,7 +14,37 @@ export default function App() {
   const selected = usePipelineStore((state) => state.selectedNode);
   const [mode, setMode] = useState<StageMode>("ambient");
   const [barHeight, setBarHeight] = useState(130);
-  const handleBarHeight = useCallback((height: number) => setBarHeight(height), []);
+  // Second line of defence against camera shake: the stage re-fits whenever
+  // pad-bottom changes, so ignore the sub-pixel jitter a ResizeObserver reports
+  // for text that reflows by a hairline.
+  const handleBarHeight = useCallback(
+    (height: number) => setBarHeight((current) => (Math.abs(current - height) < 6 ? current : height)),
+    [],
+  );
+
+  // Keyboard is the fastest route to "look at that stage": Esc drops the panel,
+  // 1-9 walk the pipeline in flow order, and A/D swap the two stage modes.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const store = usePipelineStore.getState();
+      if (event.key === "Escape") {
+        store.selectNode(null);
+        return;
+      }
+      if (event.key === "a" || event.key === "d") {
+        setMode(event.key === "a" ? "ambient" : "detail");
+        return;
+      }
+      const index = Number(event.key);
+      if (!Number.isInteger(index) || index < 1 || index > 9) return;
+      const ordered = orderNodeIds(Object.values(store.data.nodes));
+      const nodeId = ordered[index - 1];
+      if (nodeId) store.selectNode(nodeId === store.selectedNode ? null : nodeId);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="flex h-full flex-col bg-chassis">
