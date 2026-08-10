@@ -3,6 +3,17 @@
 **/*.rs.bk
 Cargo.lock
 
+# Dashboard assets produced by build.rs. Not in git; packaged into the .crate
+# via the `include` list in Cargo.toml so published users need no Node.js.
+/assets/
+
+# Unrelated repository that happens to live inside this working tree.
+/vicscan-backend/
+
+# Build detritus left by the pre-split single UI. The dashboards now live in
+# templates/.
+/ui/
+
 # Frontend
 node_modules/
 dist/
