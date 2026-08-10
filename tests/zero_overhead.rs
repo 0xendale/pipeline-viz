@@ -18,6 +18,7 @@ const FORBIDDEN: &[&str] = &[
     "sysinfo",
     "tokio-tungstenite",
     "rust-embed",
+    "mime_guess",
 ];
 
 #[test]
@@ -76,4 +77,29 @@ fn the_public_api_still_compiles_and_does_nothing() {
     assert!(snapshot.nodes.is_empty());
     assert!(snapshot.jobs.is_empty());
     assert_eq!(tracker.dropped_events(), 0);
+}
+
+/// The macros expand to the same runtime calls, so with `viz` off they expand
+/// to nothing that survives the optimizer — and, crucially, they still compile.
+/// A macro that only builds in the instrumented configuration would break every
+/// user's production build.
+#[cfg(feature = "macros")]
+mod sugar {
+    use pipeline_viz::{track_job, track_node};
+
+    #[track_node(kind = Sink, name = "Database Committer", inputs = ["fetcher"])]
+    #[track_job(node = "committer", id = number, job_type = "Block", meta(tx_count = 142))]
+    fn commit(number: u64) -> Result<u64, &'static str> {
+        if number == 0 {
+            return Err("empty block");
+        }
+        Ok(number)
+    }
+
+    #[test]
+    fn annotated_functions_are_untouched_when_the_feature_is_off() {
+        assert!(pipeline_viz::global().is_none());
+        assert_eq!(commit(9_355), Ok(9_355));
+        assert_eq!(commit(0), Err("empty block"));
+    }
 }

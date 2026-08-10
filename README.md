@@ -10,18 +10,7 @@ Live item-level visibility for Rust data pipelines.
 
 ![The three-d dashboard: four pipeline stages in 3D, with a stage rail on the left and a strip of the longest-waiting items along the bottom](docs/images/three-d-overview.png)
 
-## Status
-
-**Work in progress — not yet published to crates.io.**
-
-| Milestone | State |
-|---|---|
-| 1. Instrumentation API + state collector | Done |
-| 2. Embedded HTTP/WebSocket server | Done |
-| 3. Dashboard UI — simple + 3D templates | Done |
-| 4. Single-binary embedding, macros, publish | Next |
-
-The crate serves the event stream over a WebSocket; see [Watching the stream](#watching-the-stream). Two dashboard templates consume it — see [The dashboard](#the-dashboard).
+Add the dependency, add three lines to `main`, open `localhost:9999`. The dashboard is compiled into your binary — there is no static directory to deploy and no Node.js on the machine that runs it.
 
 ## Usage
 
@@ -61,6 +50,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 An item that never reaches `complete()` — because a `?` returned early, say — is marked **abandoned** rather than silently vanishing. That is usually the bug you were looking for.
 
+## Attribute macros
+
+Enable the `macros` feature and the same instrumentation becomes two annotations:
+
+```toml
+[dependencies]
+pipeline-viz = { version = "0.1", features = ["viz", "macros"] }
+```
+
+```rust
+use pipeline_viz::{track_job, track_node};
+
+#[track_node(id = "committer", kind = Sink, name = "Database Committer", inputs = ["indexer"])]
+#[track_job(node = "committer", id = number, job_type = "Block", meta(tx_count = 142))]
+async fn commit(number: u64) -> Result<(), Error> {
+    // ... write to PostgreSQL ...
+    Ok(())
+}
+```
+
+`track_node` registers the stage on the function's first call. `track_job` opens a guard for the body and completes it when the body returns — including an early `return` or a `?` that yielded an `Err`. A panic drops the guard instead, which is what marks the item abandoned.
+
+Annotated functions have nowhere to receive a tracker handle, so both macros read one installed at startup:
+
+```rust
+let tracker = PipelineTracker::builder().bind_port(9999).start_background()?;
+pipeline_viz::install(tracker)?;
+```
+
+They expand to exactly the runtime calls shown above and hold no state of their own, so the two surfaces cannot drift apart. With nothing installed — or with `viz` off — the generated calls do nothing.
+
 ## Watching the stream
 
 The event stream is also readable directly:
@@ -87,42 +107,27 @@ gap in it; reconnecting gets a fresh snapshot.
 
 ## The dashboard
 
-Two UI templates consume the WebSocket protocol. Until the UI is embedded in
-the binary (milestone 4), run them from source:
-
-| Template | Description | Dev port |
-|---|---|---|
-| `simple` | Dense 2D operational dashboard | 5173 |
-| `three-d` | Immersive WebGL dashboard | 5174 |
-
-Run the Rust producer in one terminal:
+It is already in your binary. Start your program and open the port you bound:
 
 ```sh
-cargo run --example fake_indexer --features viz   # terminal one
+cargo run --example fake_indexer --features viz
+open http://localhost:9999
 ```
 
-Install once, then start a template in a second terminal:
+The dashboard shows the pipeline graph with live per-node counters, a persistent
+strip of the longest-waiting items with their hold reasons, and a per-node
+drill-down listing what is sitting there and why. Stages turn amber when an item
+has been there for more than ten seconds.
 
-```sh
-npm install
-npm run simple:dev      # or: npm run three-d:dev
-```
+![The dashboard with a stage opened: its counters and percentiles on the right, each item at that stage listed with its age, one of them abandoned](docs/images/three-d-dashboard.png)
 
-Then open `http://localhost:5173` (or `:5174`). Vite proxies `/ws` to the Rust
-server on 9999, so the browser stays on a single origin.
+Each stage takes a form from its kind — a portal for a source, a prism for a
+transform, an archive rack for a sink — and items are physical objects on it:
+teal moving, amber held, red abandoned. Queued items orbit outside the stage.
+The rail on the left names the stall directly, so a stuck stage is legible
+without opening anything.
 
-Both dashboards show the pipeline graph with live per-node counters, a
-persistent strip of the longest-waiting items with their hold reasons, and a
-per-node drill-down listing what is sitting there and why. Node borders turn
-amber when an item has been at that node for more than ten seconds.
-
-In `three-d`, each stage takes a form from its kind — a portal for a source, a
-prism for a transform, an archive rack for a sink — and items are physical
-objects on it: teal moving, amber held, red abandoned. Queued items orbit
-outside the stage. The rail on the left names the stall directly, so a stuck
-stage is legible without opening anything:
-
-![A stage detail panel open on the Validator, listing each item there with its age and hold reason](docs/images/three-d-stage-detail.png)
+![The pipeline in 3D: six stages laid out along their edges, the sink ringed amber because items are stalled there](docs/images/three-d-scene.png)
 
 Click a stage or press `1`-`9` to open it, `Esc` to close, `a` / `d` to switch
 between the ambient and detail stage modes. Drag to swing the camera, scroll to
@@ -130,6 +135,24 @@ zoom.
 
 The CPU and RAM figures in the header are **whole-process** and labelled as
 such — see [What it measures](#what-it-measures).
+
+### Working on the UI
+
+The dashboard is `templates/three-d`, built by `build.rs` and embedded with
+`rust-embed`; a second template, `templates/simple`, is a dense 2D alternative
+kept as a development target. Both run against a live producer with hot reload:
+
+```sh
+cargo run --example fake_indexer --features viz   # terminal one
+npm install && npm run three-d:dev                # terminal two, or simple:dev
+```
+
+Then open `http://localhost:5174` (`simple` uses 5173). Vite proxies `/ws` to
+the Rust server on 9999, so the browser stays on a single origin.
+
+Building the crate with `viz` on runs the Vite build automatically. On a machine
+without Node.js, populate `assets/` once and set
+`PIPELINE_VIZ_SKIP_UI_BUILD=1`.
 
 ## Off by default
 
@@ -163,10 +186,11 @@ Full design: [`docs/specs/2026-08-04-pipeline-viz-mvp-design.md`](docs/specs/202
 ## Development
 
 ```sh
-cargo test --features viz
-cargo test --no-default-features
-cargo clippy --features viz --all-targets -- -D warnings
-cargo fmt --check
+cargo test --features viz,macros
+cargo test --no-default-features --features macros
+cargo clippy --features viz,macros --all-targets -- -D warnings
+cargo clippy --no-default-features --features macros --all-targets -- -D warnings
+cargo fmt --all --check
 npm run protocol:test && npm run protocol:typecheck
 npm run simple:test && npm run simple:typecheck && npm run simple:lint && npm run simple:build
 npm run three-d:test && npm run three-d:typecheck && npm run three-d:lint && npm run three-d:build

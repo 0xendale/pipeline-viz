@@ -38,12 +38,57 @@
 //!
 //! With the feature off, every call above compiles to an empty inlined body and
 //! none of the implementation's dependencies are built.
+//!
+//! # The dashboard
+//!
+//! The tracker serves it on the port you bound. The whole UI is compiled into
+//! your binary — no static directory to deploy, no Node.js on the machine that
+//! runs it, nothing to configure.
+//!
+//! # Attribute macros
+//!
+//! Enable the `macros` feature for [`track_node`] and [`track_job`], which turn
+//! the calls above into two annotations:
+//!
+//! ```toml
+//! [dependencies]
+//! pipeline-viz = { version = "0.1", features = ["viz", "macros"] }
+//! ```
+//!
+//! ```
+//! # #[cfg(feature = "macros")] mod example {
+//! use pipeline_viz::{track_job, track_node};
+//!
+//! #[track_node(id = "committer", kind = Sink, name = "Database Committer", inputs = ["indexer"])]
+//! #[track_job(node = "committer", id = number, job_type = "Block", meta(tx_count = 142))]
+//! async fn commit(number: u64) -> Result<(), &'static str> {
+//!     // ... write to PostgreSQL ...
+//!     Ok(())
+//! }
+//! # }
+//! ```
+//!
+//! `track_node` registers the stage on the annotated function's first call.
+//! `track_job` opens a [`JobGuard`] for the duration of the body and completes
+//! it when the body returns — including an early `return` or a `?` that yielded
+//! an `Err`. A panic drops the guard instead, which is what marks an item
+//! abandoned.
+//!
+//! Both read the tracker from [`install`], because an annotated function has
+//! nowhere to receive a handle. They expand to the same runtime calls shown
+//! above and hold no state of their own, so the two surfaces cannot drift
+//! apart. With nothing installed — or with `viz` off — the generated calls do
+//! nothing.
 
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
 
 pub mod model;
 
+mod global;
+
+#[cfg(feature = "viz")]
+mod assets;
 #[cfg(feature = "viz")]
 mod collector;
 #[cfg(feature = "viz")]
@@ -66,7 +111,21 @@ pub use tracker::{Error, JobBuilder, JobGuard, PipelineTracker, TrackerBuilder};
 #[cfg(not(feature = "viz"))]
 pub use noop::{Error, JobBuilder, JobGuard, PipelineTracker, TrackerBuilder};
 
+pub use global::{global, install, InstallError};
+
 pub use model::{
     JobId, JobPhase, JobState, NodeCounters, NodeId, NodeKind, NodeState, Patch, ProcessStats,
     ServerMessage, Snapshot,
 };
+
+/// Registers the annotated function as a pipeline node.
+///
+/// See the [module-level macro documentation](crate#attribute-macros).
+#[cfg(feature = "macros")]
+pub use pipeline_viz_macros::track_node;
+
+/// Tracks one work item for the duration of the annotated function.
+///
+/// See the [module-level macro documentation](crate#attribute-macros).
+#[cfg(feature = "macros")]
+pub use pipeline_viz_macros::track_job;
