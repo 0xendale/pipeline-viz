@@ -48,7 +48,22 @@
       var T = window.THREE, sim = window.PipelineSim;
       this.T = T; this.sim = sim;
 
-      var renderer = new T.WebGLRenderer({ antialias: true, powerPreference: "low-power" });
+      // Software renderers, locked-down browsers, and headless VMs all reach
+      // here without WebGL. The HUD panels are plain DOM and keep working, so
+      // say what is missing rather than throwing and leaving a blank page.
+      var renderer;
+      try {
+        renderer = new T.WebGLRenderer({ antialias: true, powerPreference: "low-power" });
+      } catch (err) {
+        this.failed = true;
+        var notice = document.createElement("div");
+        notice.className = "pipeline-stage-nogl";
+        notice.textContent =
+          "3D view unavailable: this browser reports no WebGL context. " +
+          "The stage rail, item list, and hold reasons on this page are still live.";
+        this.appendChild(notice);
+        return;
+      }
       renderer.setClearColor(C.chassis, 1);
       renderer.shadowMap.enabled = false;
       this.renderer = renderer;
