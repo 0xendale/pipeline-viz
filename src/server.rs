@@ -32,7 +32,10 @@ pub(crate) fn serve(listener: std::net::TcpListener, collector: CollectorHandle)
         let app = Router::new()
             .route("/health", get(|| async { "ok" }))
             .route("/ws", get(websocket_upgrade))
-            .route("/", get(index))
+            .route("/", get(crate::assets::index))
+            // Everything else is the embedded bundle, which also absorbs
+            // unknown paths so a reloaded dashboard route still loads.
+            .fallback(get(crate::assets::asset))
             .with_state(ServerState { collector });
 
         // A serving failure means no dashboard. It must never take the host
@@ -41,11 +44,6 @@ pub(crate) fn serve(listener: std::net::TcpListener, collector: CollectorHandle)
             eprintln!("pipeline-viz: dashboard stopped ({error})");
         }
     });
-}
-
-/// Placeholder until the dashboard UI is embedded in milestone 4.
-async fn index() -> &'static str {
-    "pipeline-viz is running. The dashboard UI is not built yet; connect to /ws for the event stream."
 }
 
 async fn websocket_upgrade(

@@ -47,6 +47,22 @@ pipeline-stage {
   height: 100%;
 }
 
+/* Shown in place of the canvas when the browser reports no WebGL context.
+   The HUD is plain DOM and stays live, so this explains the gap rather than
+   presenting the page as broken. */
+.pipeline-stage-nogl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 15%;
+  text-align: center;
+  text-wrap: balance;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--color-muted);
+}
+
 /* HUD panels ride over the WebGL canvas. Translucent chassis reads as glass
    over the scene instead of a flat card. */
 .hud-panel {

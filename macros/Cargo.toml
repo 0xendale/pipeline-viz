@@ -1,0 +1,18 @@
+[package]
+name = "pipeline-viz-macros"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Attribute-macro sugar for pipeline-viz. Not useful on its own; enable the `macros` feature of pipeline-viz instead."
+license = "MIT"
+repository = "https://github.com/0xendale/pipeline-viz"
+keywords = ["pipeline", "observability", "macros"]
+categories = ["development-tools::debugging"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
