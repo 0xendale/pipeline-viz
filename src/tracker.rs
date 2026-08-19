@@ -26,6 +26,8 @@ const DEFAULT_CHANNEL_CAPACITY: usize = 4096;
 /// 60Hz; 100ms cuts message volume roughly sixfold against a 16ms tick.
 const DEFAULT_TICK: Duration = Duration::from_millis(100);
 
+static NEXT_TRACKER_INSTANCE: AtomicU64 = AtomicU64::new(1);
+
 /// Things that can go wrong starting the tracker.
 ///
 /// Note what is absent: no variant reports a failure of the *pipeline*. A
@@ -151,6 +153,8 @@ impl TrackerBuilder {
                 collector,
                 port: bound_port,
                 serving,
+                instance: NEXT_TRACKER_INSTANCE.fetch_add(1, Ordering::Relaxed),
+                next_job_sequence: AtomicU64::new(1),
             }),
         })
     }
@@ -163,6 +167,8 @@ struct TrackerInner {
     collector: CollectorHandle,
     port: u16,
     serving: bool,
+    instance: u64,
+    next_job_sequence: AtomicU64,
 }
 
 /// Handle used to instrument a pipeline. Cheap to clone and share.
@@ -269,6 +275,11 @@ impl PipelineTracker {
             self.inner.dropped.fetch_add(1, Ordering::Relaxed);
         }
     }
+
+    fn next_job_id(&self) -> JobId {
+        let sequence = self.inner.next_job_sequence.fetch_add(1, Ordering::Relaxed);
+        format!("job_{}_{}", self.inner.instance, sequence)
+    }
 }
 
 /// Describes an item before it starts being tracked at a node.
@@ -283,6 +294,9 @@ pub struct JobBuilder {
 
 impl JobBuilder {
     /// Identity of the item, stable across the whole pipeline.
+    ///
+    /// Explicit IDs are used unchanged and are not checked for uniqueness,
+    /// including values shaped like generated `job_<instance>_<sequence>` IDs.
     pub fn id(mut self, job_id: impl Display) -> Self {
         self.job_id = Some(job_id.to_string());
         self
@@ -302,7 +316,7 @@ impl JobBuilder {
 
     /// Start tracking. The returned guard owns the item's presence at this node.
     pub fn start(self) -> JobGuard {
-        let job_id = self.job_id.unwrap_or_else(|| format!("job_{}", now_ms()));
+        let job_id = self.job_id.unwrap_or_else(|| self.tracker.next_job_id());
 
         self.tracker.emit(Event::JobEnter {
             job_id: job_id.clone(),
