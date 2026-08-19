@@ -421,6 +421,9 @@ impl PipelineTracker {
     /// stopped — including when the Tokio runtime it was started on is
     /// destroyed while this handle lives on. The tracker still works either
     /// way; there is simply nothing to connect a browser to.
+    ///
+    /// Binding is attempted once, at startup. This never becomes true again on
+    /// its own if the port later frees up; start another tracker for that.
     pub fn is_serving(&self) -> bool {
         self.inner.serving.load(Ordering::Relaxed)
     }

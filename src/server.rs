@@ -95,6 +95,11 @@ async fn websocket_upgrade(
 /// that has stopped reading parks the server mid-send, and only dropping that
 /// future releases the socket. The client then sees EOF, which is the correct
 /// signal that the dashboard is gone.
+///
+/// That means shutdown closes the connection abruptly rather than sending a
+/// close frame, so a browser reports code 1006. Sending one first would mean
+/// awaiting a send that may be exactly the one that is parked, which is the
+/// hang this arrangement exists to prevent.
 async fn client_session(socket: WebSocket, state: ServerState) {
     let mut cancel = state.cancel.clone();
     tokio::select! {

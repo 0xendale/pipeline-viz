@@ -270,6 +270,10 @@ Per item: which node holds it, since when, and why it is held.
 
 **The dashboard was there, then stopped.** The last `PipelineTracker` clone was dropped; see [Lifetime](#lifetime). Hold a handle for as long as you want the dashboard, or `install()` one.
 
+**The port freed up, but the dashboard never came back.** Binding is attempted once, at startup. A tracker that failed to bind stays not-serving for its life; there is no retry. Restart the tracker, or bind port `0` in the first place.
+
+**The browser console logs an abnormal WebSocket closure (1006).** That is what a clean shutdown looks like. Cancellation drops the connection rather than waiting to send a close frame, because that send can be parked on a full buffer — waiting on it is the hang that `tests/lifecycle.rs` exists to prevent.
+
 **Calls compile but nothing is recorded.** The `viz` feature is off, so every call is an empty inlined body. Check the feature list on the dependency.
 
 **`start_background()` returns `Error::NoRuntime`.** It must be called from inside a Tokio runtime — within `#[tokio::main]` or a `Runtime::block_on`.
