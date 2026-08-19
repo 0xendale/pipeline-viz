@@ -1,0 +1,6 @@
+{
+  "//": "External links are not checked: a network flake is not a documentation defect, and this must give the same answer offline. Local files and in-page anchors are.",
+  "ignorePatterns": [
+    { "pattern": "^https?://" }
+  ]
+}
