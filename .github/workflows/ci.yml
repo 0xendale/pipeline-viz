@@ -44,6 +44,12 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --features viz,macros --all-targets -- -D warnings
       - run: cargo test --features viz,macros
+      # The example advertises a mode whose whole purpose is proving the crate
+      # works without a human. Compiling it is not running it.
+      - name: Example self-check
+        run: |
+          cargo build --example tokio_pipeline --features viz
+          PIPELINE_VIZ_EXAMPLE_MODE=self-check target/debug/examples/tokio_pipeline
 
   # The default build. Deliberately given no Node.js and no npm ci: with viz
   # off there is nothing to build a dashboard from, and this job failing would
@@ -84,11 +90,15 @@ jobs:
         env:
           CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
         run: cargo +stable generate-lockfile
-      # rust-embed-impl 8.12.0 declares no rust-version, so the resolver cannot
+      # rust-embed-utils 8.12.0 declares no rust-version, so the resolver cannot
       # see that it drags in sha2 0.11 -> block-buffer 0.12, which is edition
-      # 2024 and unparseable by cargo 1.75. Pin the last version that is not.
-      - name: Pin rust-embed-impl below its edition-2024 dependency
-        run: cargo +stable update -p rust-embed-impl --precise 8.11.0
+      # 2024 and unparseable by cargo 1.75. Both pins are needed and the order
+      # matters: rust-embed-impl 8.12.0 requires rust-embed-utils ^8.12.0, so
+      # utils cannot be downgraded until impl has been.
+      - name: Pin rust-embed below its edition-2024 dependency
+        run: |
+          cargo +stable update -p rust-embed-impl --precise 8.11.0
+          cargo +stable update -p rust-embed-utils --precise 8.11.0
       - run: cargo +1.75.0 check --no-default-features --lib
       - run: cargo +1.75.0 check --no-default-features --features macros --all-targets
       - run: cargo +1.75.0 check --features viz,macros --all-targets
@@ -113,6 +123,10 @@ jobs:
       - run: npm run three-d:typecheck
       - run: npm run three-d:lint
       - run: npm run three-d:build
+      # External URLs are ignored by config, so this checks local files and
+      # in-page anchors only and gives the same answer offline.
+      - name: Check documentation links
+        run: npx --yes markdown-link-check@3.15.0 -c .markdown-link-check.json README.md CHANGELOG.md
 
   # Public items are documented, and both feature surfaces render cleanly.
   rustdoc:
@@ -168,6 +182,9 @@ jobs:
             features: macros
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master, 2026-08-05
+        with:
+          toolchain: stable
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
