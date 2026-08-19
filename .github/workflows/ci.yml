@@ -151,7 +151,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - run: bash scripts/verify-package.sh --build
+      - run: bash scripts/verify-package.sh --build --require-file CHANGELOG.md
 
   # A patch release must not change the public API. Both root feature surfaces
   # are checked; the macro crate is not named, because it is released separately.

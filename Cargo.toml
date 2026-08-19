@@ -1,6 +1,6 @@
 [package]
 name = "pipeline-viz"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Live item-level visibility for Rust data pipelines: see where every work item is and why it is stuck."
@@ -27,6 +27,7 @@ include = [
     "/examples/**/*.rs",
     "/tests/**/*.rs",
     "/README.md",
+    "/CHANGELOG.md",
     "/LICENSE",
 ]
 
