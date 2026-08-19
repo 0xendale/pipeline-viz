@@ -49,6 +49,11 @@ impl TrackerBuilder {
     }
 
     #[inline(always)]
+    pub fn max_retained_abandoned(self, _max: usize) -> Self {
+        self
+    }
+
+    #[inline(always)]
     pub fn start_background(self) -> Result<PipelineTracker, Error> {
         Ok(PipelineTracker)
     }

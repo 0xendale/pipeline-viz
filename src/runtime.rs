@@ -17,6 +17,11 @@ use crate::model::{ServerMessage, Snapshot};
 /// is disconnected and forced to reconnect for a fresh snapshot.
 const BROADCAST_CAPACITY: usize = 256;
 
+pub(crate) struct CollectorConfig {
+    pub(crate) tick: Duration,
+    pub(crate) max_retained_abandoned: usize,
+}
+
 pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -47,9 +52,11 @@ impl CollectorHandle {
 pub(crate) fn spawn_collector(
     mut events: mpsc::Receiver<Event>,
     dropped: Arc<AtomicU64>,
-    tick: Duration,
+    config: CollectorConfig,
 ) -> CollectorHandle {
-    let state = Arc::new(Mutex::new(CollectorState::new()));
+    let state = Arc::new(Mutex::new(CollectorState::with_max_retained_abandoned(
+        config.max_retained_abandoned,
+    )));
     let (patches, _) = broadcast::channel(BROADCAST_CAPACITY);
 
     let handle = CollectorHandle {
@@ -58,7 +65,7 @@ pub(crate) fn spawn_collector(
     };
 
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(tick);
+        let mut ticker = tokio::time::interval(config.tick);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {

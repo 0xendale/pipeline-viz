@@ -19,7 +19,9 @@ const WINDOW_MS: u64 = 60_000;
 /// window without bound between prunes.
 const MAX_SAMPLES: usize = 4096;
 
-#[derive(Debug, Default)]
+pub(crate) const DEFAULT_MAX_RETAINED_ABANDONED: usize = 1_000;
+
+#[derive(Debug)]
 pub(crate) struct CollectorState {
     nodes: BTreeMap<NodeId, NodeState>,
     jobs: BTreeMap<JobId, JobState>,
@@ -28,6 +30,8 @@ pub(crate) struct CollectorState {
     dirty_nodes: BTreeSet<NodeId>,
     dirty_jobs: BTreeSet<JobId>,
     removed_jobs: BTreeSet<JobId>,
+    abandoned_fifo: VecDeque<JobId>,
+    max_retained_abandoned: usize,
     dropped_events: u64,
     last_patch_dropped: u64,
     started_at_ms: Option<u64>,
@@ -36,9 +40,38 @@ pub(crate) struct CollectorState {
     last_patch_process: Option<ProcessStats>,
 }
 
+impl Default for CollectorState {
+    fn default() -> Self {
+        Self {
+            nodes: BTreeMap::new(),
+            jobs: BTreeMap::new(),
+            samples: BTreeMap::new(),
+            dirty_nodes: BTreeSet::new(),
+            dirty_jobs: BTreeSet::new(),
+            removed_jobs: BTreeSet::new(),
+            abandoned_fifo: VecDeque::new(),
+            max_retained_abandoned: DEFAULT_MAX_RETAINED_ABANDONED,
+            dropped_events: 0,
+            last_patch_dropped: 0,
+            started_at_ms: None,
+            latest_ts_ms: 0,
+            process: None,
+            last_patch_process: None,
+        }
+    }
+}
+
 impl CollectorState {
+    #[cfg(test)]
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    pub(crate) fn with_max_retained_abandoned(max_retained_abandoned: usize) -> Self {
+        Self {
+            max_retained_abandoned,
+            ..Self::default()
+        }
     }
 
     /// Number of events discarded because the channel was full.
@@ -80,6 +113,7 @@ impl CollectorState {
                 meta,
                 at_ms,
             } => {
+                self.abandoned_fifo.retain(|queued| queued != &job_id);
                 self.ensure_node(&node_id);
 
                 let previous = self
@@ -124,18 +158,38 @@ impl CollectorState {
             }
 
             Event::JobHold { job_id, reason, .. } => {
+                self.abandoned_fifo.retain(|queued| queued != &job_id);
                 self.set_phase(&job_id, JobPhase::Held { reason });
             }
 
             Event::JobResume { job_id, .. } => {
+                self.abandoned_fifo.retain(|queued| queued != &job_id);
                 self.set_phase(&job_id, JobPhase::Active);
             }
 
             Event::JobAbandon { job_id, .. } => {
-                self.set_phase(&job_id, JobPhase::Abandoned);
+                let newly_abandoned = self
+                    .jobs
+                    .get(&job_id)
+                    .is_some_and(|job| job.phase != JobPhase::Abandoned);
+                if newly_abandoned {
+                    self.abandoned_fifo.retain(|queued| queued != &job_id);
+                    self.set_phase(&job_id, JobPhase::Abandoned);
+                    self.abandoned_fifo.push_back(job_id);
+
+                    while self.abandoned_fifo.len() > self.max_retained_abandoned {
+                        let Some(evicted) = self.abandoned_fifo.pop_front() else {
+                            break;
+                        };
+                        self.jobs.remove(&evicted);
+                        self.dirty_jobs.remove(&evicted);
+                        self.removed_jobs.insert(evicted);
+                    }
+                }
             }
 
             Event::JobComplete { job_id, at_ms } => {
+                self.abandoned_fifo.retain(|queued| queued != &job_id);
                 if let Some(job) = self.jobs.remove(&job_id) {
                     let spent = at_ms.saturating_sub(job.entered_node_at_ms);
                     self.record_leave(&job.current_node, at_ms, spent);
@@ -330,7 +384,7 @@ fn round_2dp(value: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::NodeKind;
+    use crate::model::{NodeKind, ServerMessage};
     use std::collections::BTreeMap;
 
     fn register(id: &str, at_ms: u64) -> Event {
@@ -349,6 +403,28 @@ mod tests {
             job_type: "Block".into(),
             node_id: node.into(),
             meta: BTreeMap::new(),
+            at_ms,
+        }
+    }
+
+    fn abandon(job: &str, at_ms: u64) -> Event {
+        Event::JobAbandon {
+            job_id: job.into(),
+            at_ms,
+        }
+    }
+
+    fn hold(job: &str, at_ms: u64) -> Event {
+        Event::JobHold {
+            job_id: job.into(),
+            reason: "waiting".into(),
+            at_ms,
+        }
+    }
+
+    fn resume(job: &str, at_ms: u64) -> Event {
+        Event::JobResume {
+            job_id: job.into(),
             at_ms,
         }
     }
@@ -526,6 +602,282 @@ mod tests {
             node(&patch, "indexer").counters.in_flight,
             0,
             "an abandoned item is no longer in flight"
+        );
+    }
+
+    #[test]
+    fn abandoned_retention_matches_transition_table() {
+        struct Case {
+            name: &'static str,
+            cap: usize,
+            events: Vec<Event>,
+            retained: Vec<(&'static str, JobPhase)>,
+            fifo: Vec<&'static str>,
+            patch_jobs: Vec<(&'static str, JobPhase)>,
+            removed: Vec<&'static str>,
+        }
+
+        let cases = vec![
+            Case {
+                name: "duplicate abandon preserves FIFO position",
+                cap: 2,
+                events: vec![enter("A", "indexer", 1), abandon("A", 2), abandon("A", 3)],
+                retained: vec![("A", JobPhase::Abandoned)],
+                fifo: vec!["A"],
+                patch_jobs: vec![("A", JobPhase::Abandoned)],
+                removed: vec![],
+            },
+            Case {
+                name: "re-entry removes A before C is retained",
+                cap: 2,
+                events: vec![
+                    enter("A", "indexer", 1),
+                    abandon("A", 2),
+                    enter("B", "indexer", 3),
+                    abandon("B", 4),
+                    enter("A", "indexer", 5),
+                    enter("C", "indexer", 6),
+                    abandon("C", 7),
+                ],
+                retained: vec![
+                    ("A", JobPhase::Active),
+                    ("B", JobPhase::Abandoned),
+                    ("C", JobPhase::Abandoned),
+                ],
+                fifo: vec!["B", "C"],
+                patch_jobs: vec![
+                    ("A", JobPhase::Active),
+                    ("B", JobPhase::Abandoned),
+                    ("C", JobPhase::Abandoned),
+                ],
+                removed: vec![],
+            },
+            Case {
+                name: "same-tick re-entry cancels pending removal",
+                cap: 1,
+                events: vec![
+                    enter("A", "indexer", 1),
+                    abandon("A", 2),
+                    enter("B", "indexer", 3),
+                    abandon("B", 4),
+                    enter("A", "indexer", 5),
+                ],
+                retained: vec![("A", JobPhase::Active), ("B", JobPhase::Abandoned)],
+                fifo: vec!["B"],
+                patch_jobs: vec![("A", JobPhase::Active), ("B", JobPhase::Abandoned)],
+                removed: vec![],
+            },
+            Case {
+                name: "completion after abandon removes once",
+                cap: 2,
+                events: vec![
+                    enter("A", "indexer", 1),
+                    abandon("A", 2),
+                    Event::JobComplete {
+                        job_id: "A".into(),
+                        at_ms: 3,
+                    },
+                ],
+                retained: vec![],
+                fifo: vec![],
+                patch_jobs: vec![],
+                removed: vec!["A"],
+            },
+            Case {
+                name: "zero cap retains no abandoned records",
+                cap: 0,
+                events: vec![enter("A", "indexer", 1), abandon("A", 2)],
+                retained: vec![],
+                fifo: vec![],
+                patch_jobs: vec![],
+                removed: vec!["A"],
+            },
+            Case {
+                name: "hold then abandon re-enqueues once",
+                cap: 2,
+                events: vec![
+                    enter("A", "indexer", 1),
+                    abandon("A", 2),
+                    hold("A", 3),
+                    abandon("A", 4),
+                ],
+                retained: vec![("A", JobPhase::Abandoned)],
+                fifo: vec!["A"],
+                patch_jobs: vec![("A", JobPhase::Abandoned)],
+                removed: vec![],
+            },
+            Case {
+                name: "resume then abandon re-enqueues once",
+                cap: 2,
+                events: vec![
+                    enter("A", "indexer", 1),
+                    abandon("A", 2),
+                    resume("A", 3),
+                    abandon("A", 4),
+                ],
+                retained: vec![("A", JobPhase::Abandoned)],
+                fifo: vec!["A"],
+                patch_jobs: vec![("A", JobPhase::Abandoned)],
+                removed: vec![],
+            },
+        ];
+
+        for case in cases {
+            let mut state = CollectorState::with_max_retained_abandoned(case.cap);
+            for event in case.events {
+                state.apply(event);
+            }
+
+            let snapshot = state.snapshot(10);
+            let retained: Vec<_> = snapshot
+                .jobs
+                .iter()
+                .map(|job| (job.job_id.as_str(), job.phase.clone()))
+                .collect();
+            let fifo: Vec<_> = state.abandoned_fifo.iter().cloned().collect();
+            let patch = state.take_patch(10).expect(case.name);
+            let patch_jobs: Vec<_> = patch
+                .jobs
+                .iter()
+                .map(|job| (job.job_id.as_str(), job.phase.clone()))
+                .collect();
+            let removed: Vec<_> = patch.removed_jobs.iter().map(String::as_str).collect();
+
+            assert_eq!(retained, case.retained, "{}: retained jobs", case.name);
+            assert_eq!(fifo, case.fifo, "{}: FIFO", case.name);
+            assert_eq!(patch_jobs, case.patch_jobs, "{}: patch jobs", case.name);
+            assert_eq!(removed, case.removed, "{}: removals", case.name);
+        }
+    }
+
+    #[test]
+    fn eviction_then_next_tick_reentry_emits_active_update() {
+        let mut state = CollectorState::with_max_retained_abandoned(1);
+        state.apply(enter("A", "indexer", 1));
+        state.apply(abandon("A", 2));
+        state.apply(enter("B", "indexer", 3));
+        state.apply(abandon("B", 4));
+
+        let first = state.take_patch(5).expect("eviction changes state");
+        assert_eq!(first.jobs.len(), 1);
+        assert_eq!(first.jobs[0].job_id, "B");
+        assert_eq!(first.jobs[0].phase, JobPhase::Abandoned);
+        assert_eq!(first.removed_jobs, vec!["A"]);
+
+        state.apply(enter("A", "indexer", 6));
+        let second = state.take_patch(7).expect("re-entry changes state");
+        assert_eq!(second.jobs.len(), 1);
+        assert_eq!(second.jobs[0].job_id, "A");
+        assert_eq!(second.jobs[0].phase, JobPhase::Active);
+        assert!(second.removed_jobs.is_empty());
+        assert_eq!(state.abandoned_fifo, VecDeque::from(["B".to_string()]));
+    }
+
+    #[test]
+    fn eviction_removal_is_not_repeated_on_later_ticks() {
+        let mut state = CollectorState::with_max_retained_abandoned(0);
+        state.apply(enter("A", "indexer", 1));
+        state.apply(abandon("A", 2));
+
+        let first = state.take_patch(3).expect("eviction changes state");
+        assert_eq!(first.removed_jobs, vec!["A"]);
+        assert!(state.take_patch(4).is_none());
+    }
+
+    #[test]
+    fn abandoned_fifo_uses_application_order_not_event_timestamps() {
+        let mut state = CollectorState::with_max_retained_abandoned(1);
+        state.apply(enter("A", "indexer", 100));
+        state.apply(abandon("A", 100));
+        state.apply(enter("B", "indexer", 1));
+        state.apply(abandon("B", 1));
+
+        let snapshot = state.snapshot(101);
+        assert_eq!(snapshot.jobs.len(), 1);
+        assert_eq!(snapshot.jobs[0].job_id, "B");
+        assert_eq!(state.abandoned_fifo, VecDeque::from(["B".to_string()]));
+    }
+
+    #[test]
+    fn active_and_held_jobs_are_immune_to_abandoned_eviction() {
+        let mut state = CollectorState::with_max_retained_abandoned(1);
+        state.apply(enter("active", "indexer", 1));
+        state.apply(enter("held", "indexer", 2));
+        state.apply(hold("held", 3));
+        state.apply(enter("old_abandoned", "indexer", 4));
+        state.apply(abandon("old_abandoned", 5));
+        state.apply(enter("new_abandoned", "indexer", 6));
+        state.apply(abandon("new_abandoned", 7));
+
+        let snapshot = state.snapshot(8);
+        let ids: Vec<_> = snapshot
+            .jobs
+            .iter()
+            .map(|job| job.job_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["active", "held", "new_abandoned"]);
+        assert_eq!(
+            state.abandoned_fifo,
+            VecDeque::from(["new_abandoned".to_string()])
+        );
+    }
+
+    #[test]
+    fn default_retains_latest_thousand_of_ten_thousand_abandons() {
+        let mut state = CollectorState::new();
+        for index in 0..10_000 {
+            let id = format!("job_{index:05}");
+            state.apply(enter(&id, "indexer", index * 2));
+            state.apply(abandon(&id, index * 2 + 1));
+        }
+
+        let snapshot = state.snapshot(20_000);
+        assert_eq!(snapshot.jobs.len(), 1_000);
+        assert_eq!(snapshot.jobs[0].job_id, "job_09000");
+        assert_eq!(snapshot.jobs[999].job_id, "job_09999");
+        assert_eq!(state.abandoned_fifo.len(), 1_000);
+        assert_eq!(
+            state.abandoned_fifo.front().map(String::as_str),
+            Some("job_09000")
+        );
+        assert_eq!(
+            state.abandoned_fifo.back().map(String::as_str),
+            Some("job_09999")
+        );
+    }
+
+    #[test]
+    fn representative_thousand_record_payload_stays_below_one_mebibyte() {
+        let reason = "r".repeat(80);
+        let jobs = (0..1_000)
+            .map(|index| JobState {
+                job_id: format!("job_{index:04}"),
+                job_type: "Block".into(),
+                current_node: "indexer".into(),
+                phase: JobPhase::Held {
+                    reason: reason.clone(),
+                },
+                entered_node_at_ms: 1_000,
+                created_at_ms: 900,
+                meta: BTreeMap::from([
+                    ("height".into(), index.to_string()),
+                    ("source".into(), "representative".into()),
+                ]),
+            })
+            .collect();
+        let snapshot = Snapshot {
+            ts_ms: 2_000,
+            nodes: vec![],
+            jobs,
+            dropped_events: 0,
+            process: None,
+        };
+
+        let encoded = serde_json::to_vec(&ServerMessage::Snapshot(snapshot)).expect("serializes");
+        assert!(
+            encoded.len() < 1024 * 1024,
+            "payload was {} bytes",
+            encoded.len()
         );
     }
 

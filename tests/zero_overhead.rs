@@ -65,6 +65,7 @@ fn no_implementation_dependencies_reach_a_production_build() {
 fn the_public_api_still_compiles_and_does_nothing() {
     let tracker = pipeline_viz::PipelineTracker::builder()
         .bind_port(9999)
+        .max_retained_abandoned(2)
         .start_background()
         .expect("the no-op tracker always starts");
 

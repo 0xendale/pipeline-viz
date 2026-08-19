@@ -13,9 +13,10 @@ use std::time::Duration;
 
 use tokio::sync::mpsc;
 
+use crate::collector::DEFAULT_MAX_RETAINED_ABANDONED;
 use crate::event::Event;
 use crate::model::{JobId, NodeId, NodeKind, Snapshot};
-use crate::runtime::{now_ms, spawn_collector, CollectorHandle};
+use crate::runtime::{now_ms, spawn_collector, CollectorConfig, CollectorHandle};
 
 /// Default bound on queued events. Reaching it means the host pipeline is
 /// producing events faster than they can be folded into state, at which point
@@ -59,6 +60,7 @@ pub struct TrackerBuilder {
     channel_capacity: usize,
     tick: Duration,
     process_metrics: bool,
+    max_retained_abandoned: usize,
 }
 
 impl Default for TrackerBuilder {
@@ -68,6 +70,7 @@ impl Default for TrackerBuilder {
             channel_capacity: DEFAULT_CHANNEL_CAPACITY,
             tick: DEFAULT_TICK,
             process_metrics: true,
+            max_retained_abandoned: DEFAULT_MAX_RETAINED_ABANDONED,
         }
     }
 }
@@ -100,6 +103,22 @@ impl TrackerBuilder {
         self
     }
 
+    /// Maximum abandoned item records retained for diagnostics.
+    ///
+    /// This bounds abandoned record count only. Metadata bytes and active or
+    /// held items are not subject to this limit.
+    ///
+    /// # Examples
+    /// ```
+    /// use pipeline_viz::PipelineTracker;
+    ///
+    /// let _builder = PipelineTracker::builder().max_retained_abandoned(100);
+    /// ```
+    pub fn max_retained_abandoned(mut self, max: usize) -> Self {
+        self.max_retained_abandoned = max;
+        self
+    }
+
     /// Start the collector and the dashboard server on the current Tokio runtime.
     ///
     /// Binding happens here rather than inside the spawned task so the caller
@@ -113,7 +132,14 @@ impl TrackerBuilder {
 
         let (sender, receiver) = mpsc::channel(self.channel_capacity);
         let dropped = Arc::new(AtomicU64::new(0));
-        let collector = spawn_collector(receiver, Arc::clone(&dropped), self.tick);
+        let collector = spawn_collector(
+            receiver,
+            Arc::clone(&dropped),
+            CollectorConfig {
+                tick: self.tick,
+                max_retained_abandoned: self.max_retained_abandoned,
+            },
+        );
 
         if self.process_metrics {
             crate::process::spawn_sampler(sender.clone());
