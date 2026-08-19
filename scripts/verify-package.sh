@@ -16,8 +16,10 @@
 #   --verify-archive   Check an archive that already exists, and nothing else.
 #   --require-file     Additional archive member that must be present, relative
 #                      to the archive root. Repeatable.
-#   --no-allow-dirty   Package without --allow-dirty. For the release gate,
-#                      which runs from a clean committed tree.
+#   --no-allow-dirty   Package without --allow-dirty. Only usable in a tree that
+#                      tracks assets/; this repository gitignores it and
+#                      force-packages it through Cargo.toml's include list, so
+#                      cargo always calls the tree dirty.
 
 set -euo pipefail
 
@@ -56,7 +58,9 @@ fail() {
 }
 
 usage() {
-    sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
+    # The leading comment block, however long it grows. A hardcoded line range
+    # silently starts printing script source the moment the header changes.
+    awk 'NR > 2 && /^#/ { sub(/^# ?/, ""); print; next } NR > 2 { exit }' "$0"
 }
 
 while [ $# -gt 0 ]; do
@@ -102,7 +106,8 @@ require_tool() {
 # ---------------------------------------------------------------------------
 
 verify_archive() {
-    archive="$1"
+    local archive="$1"
+    local listing root member forbidden
     shift
 
     [ -f "$archive" ] || fail "archive not found: $archive"
@@ -111,25 +116,32 @@ verify_archive() {
     root="$(printf '%s\n' "$listing" | head -n 1 | cut -d/ -f1)"
     [ -n "$root" ] || fail "archive has no root directory: $archive"
 
+    # Here-strings, not `printf | grep -q`: `grep -q` exits on the first match,
+    # the writer takes SIGPIPE, and `set -o pipefail` turns that into a failed
+    # pipeline. That reports a file present in the archive as missing, at
+    # random, roughly one run in five under load.
+    #
+    # -F as well as -x: required names are filenames, not patterns, and a `.`
+    # in one would otherwise match any character.
     for member in $BASE_REQUIRED "$@"; do
-        if ! printf '%s\n' "$listing" | grep -q -x "$root/$member"; then
+        if ! grep -q -x -F -- "$root/$member" <<<"$listing"; then
             fail "archive is missing required file: $member (in $archive)"
         fi
     done
 
     for forbidden in $FORBIDDEN_DIRS; do
-        if printf '%s\n' "$listing" | grep -q "^$root/$forbidden/"; then
+        if grep -q -- "^$root/$forbidden/" <<<"$listing"; then
             fail "archive contains development-only tree: $forbidden/ (in $archive)"
         fi
     done
 
-    if printf '%s\n' "$listing" | grep -q "node_modules/"; then
+    if grep -q -F -- "node_modules/" <<<"$listing"; then
         fail "archive contains node_modules/ (in $archive)"
     fi
 
     printf 'archive contract satisfied: %s\n' "$archive"
     printf '  root: %s\n' "$root"
-    printf '  members: %s\n' "$(printf '%s\n' "$listing" | grep -c .)"
+    printf '  members: %s\n' "$(grep -c . <<<"$listing")"
 }
 
 if [ "$MODE" = "verify-archive" ]; then
@@ -241,13 +253,16 @@ FAKE
     chmod +x "$FAKE_BIN/$tool"
 done
 
-# One target directory for every consumer, so dependencies compile once.
+# One target directory for every consumer, so dependencies compile once. It is
+# cleared first: tar restores the archive's mtimes, so a re-run at the same
+# version could otherwise run a binary built from the previous archive.
 CONSUMER_TARGET="$REPO_ROOT/target/package-verify"
+rm -rf "$CONSUMER_TARGET"
 
 consumer_manifest() {
-    name="$1"
-    features="$2"
-    extra="$3"
+    local name="$1"
+    local features="$2"
+    local extra="$3"
 
     {
         printf '[package]\nname = "%s"\nversion = "0.0.0"\nedition = "2021"\n\n' "$name"
@@ -264,12 +279,11 @@ consumer_manifest() {
 }
 
 build_consumer() {
-    name="$1"
-    features="$2"
-    extra_deps="$3"
-    source="$4"
-
-    dir="$WORK_DIR/$name"
+    local name="$1"
+    local features="$2"
+    local extra_deps="$3"
+    local source="$4"
+    local dir="$WORK_DIR/$name"
     mkdir -p "$dir/src"
     consumer_manifest "$name" "$features" "$extra_deps" > "$dir/Cargo.toml"
     printf '%s' "$source" > "$dir/src/main.rs"
@@ -296,7 +310,7 @@ build_consumer consumer-default "" "" 'fn main() {
 }' >/dev/null
 
 step "Building a consumer with feature viz"
-VIZ_CONSUMER="$(build_consumer consumer-viz '"viz"' 'tokio = { version = "1", features = ["rt", "time", "macros"] }
+build_consumer consumer-viz '"viz"' 'tokio = { version = "1", features = ["rt", "time", "macros"] }
 ' 'use std::time::Duration;
 
 use pipeline_viz::{JobPhase, PipelineTracker};
@@ -331,7 +345,7 @@ async fn main() {
     }
 
     assert_eq!(tracker.dropped_events(), 0, "nothing should be dropped here");
-}' | tail -n 1)"
+}' >/dev/null
 
 step "Building a consumer with features viz and macros"
 build_consumer consumer-viz-macros '"viz", "macros"' 'tokio = { version = "1", features = ["rt", "time", "macros"] }
