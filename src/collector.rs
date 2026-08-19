@@ -32,11 +32,19 @@ pub(crate) struct CollectorState {
     dirty_jobs: BTreeSet<JobId>,
     removed_jobs: BTreeSet<JobId>,
     abandoned_fifo: VecDeque<JobId>,
+    /// Membership mirror of `abandoned_fifo`.
+    ///
+    /// Leaving the abandoned state has to drop the item's queue entry, and that
+    /// check runs on every enter, hold, resume and completion. Scanning the
+    /// deque each time would cost the retention cap in comparisons per event on
+    /// the collector task — which is exactly the pressure the cap exists to
+    /// avoid. The set answers "is it queued at all" in a lookup, so the scan
+    /// only runs for an item that really was abandoned.
+    abandoned_index: BTreeSet<JobId>,
     max_retained_abandoned: usize,
     dropped_events: u64,
     last_patch_dropped: u64,
     started_at_ms: Option<u64>,
-    latest_ts_ms: u64,
     process: Option<ProcessStats>,
     last_patch_process: Option<ProcessStats>,
 }
@@ -51,11 +59,11 @@ impl Default for CollectorState {
             dirty_jobs: BTreeSet::new(),
             removed_jobs: BTreeSet::new(),
             abandoned_fifo: VecDeque::new(),
+            abandoned_index: BTreeSet::new(),
             max_retained_abandoned: DEFAULT_MAX_RETAINED_ABANDONED,
             dropped_events: 0,
             last_patch_dropped: 0,
             started_at_ms: None,
-            latest_ts_ms: 0,
             process: None,
             last_patch_process: None,
         }
@@ -87,7 +95,6 @@ impl CollectorState {
     pub(crate) fn apply(&mut self, event: Event) {
         let at_ms = event.at_ms();
         self.started_at_ms.get_or_insert(at_ms);
-        self.latest_ts_ms = self.latest_ts_ms.max(at_ms);
 
         match event {
             Event::RegisterNode {
@@ -114,7 +121,7 @@ impl CollectorState {
                 meta,
                 at_ms,
             } => {
-                self.abandoned_fifo.retain(|queued| queued != &job_id);
+                self.forget_abandoned(&job_id);
                 self.ensure_node(&node_id);
 
                 let previous = self
@@ -159,12 +166,12 @@ impl CollectorState {
             }
 
             Event::JobHold { job_id, reason, .. } => {
-                self.abandoned_fifo.retain(|queued| queued != &job_id);
+                self.forget_abandoned(&job_id);
                 self.set_phase(&job_id, JobPhase::Held { reason });
             }
 
             Event::JobResume { job_id, .. } => {
-                self.abandoned_fifo.retain(|queued| queued != &job_id);
+                self.forget_abandoned(&job_id);
                 self.set_phase(&job_id, JobPhase::Active);
             }
 
@@ -174,14 +181,16 @@ impl CollectorState {
                     .get(&job_id)
                     .is_some_and(|job| job.phase != JobPhase::Abandoned);
                 if newly_abandoned {
-                    self.abandoned_fifo.retain(|queued| queued != &job_id);
+                    self.forget_abandoned(&job_id);
                     self.set_phase(&job_id, JobPhase::Abandoned);
+                    self.abandoned_index.insert(job_id.clone());
                     self.abandoned_fifo.push_back(job_id);
 
                     while self.abandoned_fifo.len() > self.max_retained_abandoned {
                         let Some(evicted) = self.abandoned_fifo.pop_front() else {
                             break;
                         };
+                        self.abandoned_index.remove(&evicted);
                         self.jobs.remove(&evicted);
                         self.dirty_jobs.remove(&evicted);
                         self.removed_jobs.insert(evicted);
@@ -190,7 +199,7 @@ impl CollectorState {
             }
 
             Event::JobComplete { job_id, at_ms } => {
-                self.abandoned_fifo.retain(|queued| queued != &job_id);
+                self.forget_abandoned(&job_id);
                 if let Some(job) = self.jobs.remove(&job_id) {
                     let spent = at_ms.saturating_sub(job.entered_node_at_ms);
                     self.record_leave(&job.current_node, at_ms, spent);
@@ -230,7 +239,6 @@ impl CollectorState {
     /// messages: however many times an entry changed since the last tick, it is
     /// emitted once, at its final value.
     pub(crate) fn take_patch(&mut self, now_ms: u64) -> Option<Patch> {
-        self.latest_ts_ms = self.latest_ts_ms.max(now_ms);
         self.recompute_counters(now_ms);
 
         let dropped_changed = self.dropped_events != self.last_patch_dropped;
@@ -281,6 +289,13 @@ impl CollectorState {
             jobs: self.jobs.values().cloned().collect(),
             dropped_events: self.dropped_events,
             process: self.process,
+        }
+    }
+
+    /// Drop an item's place in the abandonment queue, if it has one.
+    fn forget_abandoned(&mut self, job_id: &str) {
+        if self.abandoned_index.remove(job_id) {
+            self.abandoned_fifo.retain(|queued| queued != job_id);
         }
     }
 
