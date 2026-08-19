@@ -72,5 +72,9 @@ macros = ["dep:pipeline-viz-macros"]
 name = "fake_indexer"
 required-features = ["viz"]
 
+[[example]]
+name = "tokio_pipeline"
+required-features = ["viz"]
+
 [package.metadata.docs.rs]
 features = ["viz", "macros"]
