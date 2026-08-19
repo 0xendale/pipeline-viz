@@ -39,8 +39,16 @@ pub(crate) struct CollectorHandle {
 
 impl CollectorHandle {
     /// Current full state, for a client that has just connected.
+    ///
+    /// Reached from the public `PipelineTracker::snapshot`, so it recovers from
+    /// a poisoned lock rather than panicking. Nothing under the lock can panic
+    /// today, but a visualizer defect must degrade to a possibly-inconsistent
+    /// dashboard, never to a panic in the host pipeline's thread.
     pub(crate) fn snapshot(&self) -> Snapshot {
-        let mut state = self.state.lock().expect("collector state poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.snapshot(now_ms())
     }
 
