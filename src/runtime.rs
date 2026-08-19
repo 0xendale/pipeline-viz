@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{broadcast, mpsc};
 
+use crate::cancel::CancelToken;
 use crate::collector::CollectorState;
 use crate::event::Event;
 use crate::model::{ServerMessage, Snapshot};
@@ -49,10 +50,15 @@ impl CollectorHandle {
 }
 
 /// Start the collector task. Must be called from within a Tokio runtime.
+///
+/// The task ends on cancellation or when every sender is gone. Cancellation is
+/// immediate: no final patch is flushed, because by then nothing owns the
+/// tracker and there is nobody left to deliver it to.
 pub(crate) fn spawn_collector(
     mut events: mpsc::Receiver<Event>,
     dropped: Arc<AtomicU64>,
     config: CollectorConfig,
+    mut cancel: CancelToken,
 ) -> CollectorHandle {
     let state = Arc::new(Mutex::new(CollectorState::with_max_retained_abandoned(
         config.max_retained_abandoned,
@@ -70,6 +76,7 @@ pub(crate) fn spawn_collector(
 
         loop {
             tokio::select! {
+                _ = cancel.cancelled() => break,
                 event = events.recv() => {
                     match event {
                         Some(event) => {

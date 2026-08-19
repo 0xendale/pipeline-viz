@@ -7,12 +7,13 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
 
+use crate::cancel::CancelSignal;
 use crate::collector::DEFAULT_MAX_RETAINED_ABANDONED;
 use crate::event::Event;
 use crate::model::{JobId, NodeId, NodeKind, Snapshot};
@@ -132,6 +133,7 @@ impl TrackerBuilder {
 
         let (sender, receiver) = mpsc::channel(self.channel_capacity);
         let dropped = Arc::new(AtomicU64::new(0));
+        let cancel = CancelSignal::new();
         let collector = spawn_collector(
             receiver,
             Arc::clone(&dropped),
@@ -139,14 +141,16 @@ impl TrackerBuilder {
                 tick: self.tick,
                 max_retained_abandoned: self.max_retained_abandoned,
             },
+            cancel.token(),
         );
 
         if self.process_metrics {
-            crate::process::spawn_sampler(sender.clone());
+            crate::process::spawn_sampler(sender.clone(), Arc::clone(&dropped), cancel.token());
         }
 
+        let serving = Arc::new(AtomicBool::new(false));
         let listener = std::net::TcpListener::bind(("127.0.0.1", self.port));
-        let (bound_port, serving) = match listener {
+        let bound_port = match listener {
             Ok(listener) => {
                 let port = listener
                     .local_addr()
@@ -154,12 +158,17 @@ impl TrackerBuilder {
                     .unwrap_or(self.port);
                 match listener.set_nonblocking(true) {
                     Ok(()) => {
-                        crate::server::serve(listener, collector.clone());
-                        (port, true)
+                        crate::server::serve(
+                            listener,
+                            collector.clone(),
+                            cancel.token(),
+                            Arc::clone(&serving),
+                        );
+                        port
                     }
                     Err(error) => {
                         eprintln!("pipeline-viz: dashboard disabled ({error})");
-                        (self.port, false)
+                        self.port
                     }
                 }
             }
@@ -168,7 +177,7 @@ impl TrackerBuilder {
                     "pipeline-viz: dashboard disabled, port {} unavailable ({error})",
                     self.port
                 );
-                (self.port, false)
+                self.port
             }
         };
 
@@ -177,6 +186,7 @@ impl TrackerBuilder {
                 sender,
                 dropped,
                 collector,
+                cancel,
                 port: bound_port,
                 serving,
                 instance: NEXT_TRACKER_INSTANCE.fetch_add(1, Ordering::Relaxed),
@@ -191,10 +201,23 @@ struct TrackerInner {
     sender: mpsc::Sender<Event>,
     dropped: Arc<AtomicU64>,
     collector: CollectorHandle,
+    cancel: CancelSignal,
     port: u16,
-    serving: bool,
+    serving: Arc<AtomicBool>,
     instance: u64,
     next_job_sequence: AtomicU64,
+}
+
+/// The dashboard belongs to the tracker, not to the process.
+///
+/// When the last handle goes — including the clones held by a `JobBuilder` or a
+/// `JobGuard` — the collector, the sampler, the HTTP server and every open
+/// WebSocket stop, and the port is released. Nothing is flushed on the way out:
+/// by this point no handle exists to observe the result.
+impl Drop for TrackerInner {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
 }
 
 /// Handle used to instrument a pipeline. Cheap to clone and share.
@@ -272,12 +295,14 @@ impl PipelineTracker {
         self.inner.port
     }
 
-    /// Whether the dashboard server is actually listening.
+    /// Whether the dashboard server is actually listening *right now*.
     ///
-    /// False when the port was unavailable. The tracker still works; there is
-    /// simply nothing to connect a browser to.
+    /// False when the port was unavailable, and false again once the server has
+    /// stopped — including when the Tokio runtime it was started on is
+    /// destroyed while this handle lives on. The tracker still works either
+    /// way; there is simply nothing to connect a browser to.
     pub fn is_serving(&self) -> bool {
-        self.inner.serving
+        self.inner.serving.load(Ordering::Relaxed)
     }
 
     /// Events discarded because the channel was full.

@@ -90,6 +90,8 @@ mod global;
 #[cfg(feature = "viz")]
 mod assets;
 #[cfg(feature = "viz")]
+mod cancel;
+#[cfg(feature = "viz")]
 mod collector;
 #[cfg(feature = "viz")]
 mod event;
