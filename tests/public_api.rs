@@ -18,6 +18,10 @@ async fn settle(tracker: &PipelineTracker) -> Snapshot {
 
 fn tracker() -> PipelineTracker {
     PipelineTracker::builder()
+        // Port 0, not the default 9999: these tests run in parallel, and a
+        // fixed port means they fight each other for it and steal it from any
+        // dashboard the developer happens to have open.
+        .bind_port(0)
         .tick(Duration::from_millis(10))
         .start_background()
         .expect("started inside a runtime")
@@ -190,6 +194,7 @@ async fn an_item_moving_between_nodes_carries_its_identity() {
 #[tokio::test]
 async fn a_full_channel_drops_events_instead_of_blocking_the_pipeline() {
     let tracker = PipelineTracker::builder()
+        .bind_port(0)
         .channel_capacity(1)
         .tick(Duration::from_secs(3_600))
         .start_background()
