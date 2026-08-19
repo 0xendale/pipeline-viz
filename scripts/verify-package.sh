@@ -173,13 +173,20 @@ else
     cargo package --locked
 fi
 
-VERSION="$(cargo metadata --no-deps --format-version 1 \
-    | tr ',' '\n' \
-    | grep '"version"' \
-    | head -n 1 \
-    | cut -d'"' -f4)"
+# `cargo pkgid` prints one of `<url>#<version>` or `<url>#<name>@<version>`,
+# so cut to the last `#` and then to the last `@`. Reading the version out of
+# `cargo metadata` instead would pick whichever workspace member came first.
+VERSION="$(cargo pkgid -p pipeline-viz)"
+VERSION="${VERSION##*#}"
+VERSION="${VERSION##*@}"
+case "$VERSION" in
+    [0-9]*) ;;
+    *) fail "could not determine the package version (cargo pkgid gave '$VERSION')" ;;
+esac
+
 ARCHIVE="$REPO_ROOT/target/package/pipeline-viz-$VERSION.crate"
 [ -f "$ARCHIVE" ] || fail "expected archive not produced: $ARCHIVE"
+printf 'packaged version: %s\n' "$VERSION"
 
 WORK_DIR="$(mktemp -d)"
 
