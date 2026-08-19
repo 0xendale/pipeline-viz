@@ -45,6 +45,46 @@
 //! your binary — no static directory to deploy, no Node.js on the machine that
 //! runs it, nothing to configure.
 //!
+//! # Where it is safe to run
+//!
+//! The dashboard binds `127.0.0.1` and nothing else, and it is
+//! **unauthenticated**: anything that can reach the port can read every item
+//! id, hold reason and metadata in the pipeline. There is no option to bind a
+//! public address, because there is no safe way to offer one.
+//!
+//! That makes it a tool for local development, a staging box, and production
+//! diagnosis reached over an SSH tunnel:
+//!
+//! ```text
+//! ssh -N -L 9999:127.0.0.1:9999 you@your-host
+//! ```
+//!
+//! # What it does not guarantee
+//!
+//! Instrumentation never applies backpressure to the pipeline it is watching.
+//! When the event channel is full the event is dropped and counted, so under a
+//! burst the dashboard can fall behind the truth:
+//!
+//! * A nonzero [`PipelineTracker::dropped_events`] means the displayed state
+//!   **may be stale**. An enter, a completion or an abandonment can have been
+//!   among the losses, so an item may show at a node it has already left.
+//! * Nothing reconciles that afterwards. Reconnecting a browser repeats the
+//!   collector's current state; it does not repair it.
+//! * The mitigations are to raise [`TrackerBuilder::channel_capacity`], or to
+//!   restart the tracker for a clean slate.
+//!
+//! Abandoned items are retained for diagnosis up to
+//! [`TrackerBuilder::max_retained_abandoned`] records, oldest evicted first.
+//! That bounds the record count, not the bytes they carry and not active or
+//! held work.
+//!
+//! # Lifetime
+//!
+//! The dashboard belongs to the tracker. Keep a [`PipelineTracker`] alive for
+//! as long as you want it; when the last clone drops, the collector, the
+//! process sampler, the server and every open WebSocket stop and the port is
+//! released. Nothing is flushed on the way out.
+//!
 //! # Attribute macros
 //!
 //! Enable the `macros` feature for [`track_node`] and [`track_job`], which turn
@@ -82,6 +122,7 @@
 
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
+#![warn(missing_docs)]
 
 pub mod model;
 
