@@ -159,11 +159,25 @@ async fn a_completed_item_is_reported_as_a_removal() {
 
     tracker.job("indexer").id("block_6").start().complete();
 
-    // The enter and the completion coalesce into a single tick, so the item
-    // is only ever reported as removed.
-    let patch = next_json(&mut stream).await;
-    assert_eq!(patch["type"], "patch");
-    assert_eq!(patch["removed_jobs"][0], "block_6");
+    // Read until the removal arrives rather than assuming it is in the first
+    // patch. Whether the enter and the completion land in one tick is a
+    // scheduling question, and on a loaded machine they can straddle the
+    // boundary — which reports the item active first and is not a defect.
+    // That they coalesce when they do share a tick is asserted deterministically
+    // in `collector::tests::enter_and_complete_within_one_tick_emit_only_a_removal`,
+    // where no clock is involved. What belongs here is transport: a completion
+    // reaches a connected client as a removal.
+    for _ in 0..10 {
+        let patch = next_json(&mut stream).await;
+        assert_eq!(patch["type"], "patch");
+        if patch["removed_jobs"][0] == "block_6" {
+            return;
+        }
+        // Anything before the removal may only ever be this item in flight.
+        assert_eq!(patch["jobs"][0]["job_id"], "block_6");
+    }
+
+    panic!("the completed item never arrived as a removal");
 }
 
 #[tokio::test]
