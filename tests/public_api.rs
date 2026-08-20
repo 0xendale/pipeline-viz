@@ -4,6 +4,8 @@
 
 #![cfg(feature = "viz")]
 
+use std::collections::HashSet;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use pipeline_viz::{JobPhase, NodeKind, PipelineTracker, Snapshot};
@@ -16,9 +18,79 @@ async fn settle(tracker: &PipelineTracker) -> Snapshot {
 
 fn tracker() -> PipelineTracker {
     PipelineTracker::builder()
+        // Port 0, not the default 9999: these tests run in parallel, and a
+        // fixed port means they fight each other for it and steal it from any
+        // dashboard the developer happens to have open.
+        .bind_port(0)
         .tick(Duration::from_millis(10))
         .start_background()
         .expect("started inside a runtime")
+}
+
+#[tokio::test]
+async fn explicit_job_ids_remain_unrestricted_and_unchanged() {
+    // Given
+    let tracker = tracker();
+
+    // When
+    let prefix_shaped = tracker.job("indexer").id("job_1_1").start();
+    let domain_shaped = tracker.job("indexer").id("block_42").start();
+
+    // Then
+    assert_eq!(prefix_shaped.id(), "job_1_1");
+    assert_eq!(domain_shaped.id(), "block_42");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn generated_job_ids_are_unique_across_concurrent_clones() {
+    // Given
+    let tracker = tracker();
+    let (sender, receiver) = mpsc::channel();
+
+    // When
+    std::thread::scope(|scope| {
+        for _ in 0..100 {
+            let tracker = tracker.clone();
+            let sender = sender.clone();
+            scope.spawn(move || {
+                for _ in 0..100 {
+                    let job = tracker.job("indexer").start();
+                    sender.send(job.id().to_string()).unwrap();
+                    job.complete();
+                }
+            });
+        }
+    });
+    drop(sender);
+    let ids: Vec<_> = receiver.into_iter().collect();
+
+    // Then
+    assert_eq!(ids.len(), 10_000);
+    assert_eq!(ids.iter().collect::<HashSet<_>>().len(), 10_000);
+    assert!(ids.iter().all(|id| {
+        let mut parts = id.split('_');
+        matches!(
+            (parts.next(), parts.next(), parts.next(), parts.next()),
+            (Some("job"), Some(instance), Some(sequence), None)
+                if instance.parse::<u64>().is_ok() && sequence.parse::<u64>().is_ok()
+        )
+    }));
+}
+
+#[tokio::test]
+async fn generated_job_ids_use_distinct_tracker_prefixes() {
+    // Given
+    let first_tracker = tracker();
+    let second_tracker = tracker();
+
+    // When
+    let first = first_tracker.job("indexer").start();
+    let second = second_tracker.job("indexer").start();
+    let first_prefix = first.id().rsplit_once('_').unwrap().0;
+    let second_prefix = second.id().rsplit_once('_').unwrap().0;
+
+    // Then
+    assert_ne!(first_prefix, second_prefix);
 }
 
 #[tokio::test]
@@ -122,6 +194,7 @@ async fn an_item_moving_between_nodes_carries_its_identity() {
 #[tokio::test]
 async fn a_full_channel_drops_events_instead_of_blocking_the_pipeline() {
     let tracker = PipelineTracker::builder()
+        .bind_port(0)
         .channel_capacity(1)
         .tick(Duration::from_secs(3_600))
         .start_background()

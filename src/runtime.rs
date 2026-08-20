@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{broadcast, mpsc};
 
+use crate::cancel::CancelToken;
 use crate::collector::CollectorState;
 use crate::event::Event;
 use crate::model::{ServerMessage, Snapshot};
@@ -16,6 +17,11 @@ use crate::model::{ServerMessage, Snapshot};
 /// How many pending messages a slow dashboard client may fall behind before it
 /// is disconnected and forced to reconnect for a fresh snapshot.
 const BROADCAST_CAPACITY: usize = 256;
+
+pub(crate) struct CollectorConfig {
+    pub(crate) tick: Duration,
+    pub(crate) max_retained_abandoned: usize,
+}
 
 pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
@@ -33,8 +39,16 @@ pub(crate) struct CollectorHandle {
 
 impl CollectorHandle {
     /// Current full state, for a client that has just connected.
+    ///
+    /// Reached from the public `PipelineTracker::snapshot`, so it recovers from
+    /// a poisoned lock rather than panicking. Nothing under the lock can panic
+    /// today, but a visualizer defect must degrade to a possibly-inconsistent
+    /// dashboard, never to a panic in the host pipeline's thread.
     pub(crate) fn snapshot(&self) -> Snapshot {
-        let mut state = self.state.lock().expect("collector state poisoned");
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.snapshot(now_ms())
     }
 
@@ -44,12 +58,19 @@ impl CollectorHandle {
 }
 
 /// Start the collector task. Must be called from within a Tokio runtime.
+///
+/// The task ends on cancellation or when every sender is gone. Cancellation is
+/// immediate: no final patch is flushed, because by then nothing owns the
+/// tracker and there is nobody left to deliver it to.
 pub(crate) fn spawn_collector(
     mut events: mpsc::Receiver<Event>,
     dropped: Arc<AtomicU64>,
-    tick: Duration,
+    config: CollectorConfig,
+    mut cancel: CancelToken,
 ) -> CollectorHandle {
-    let state = Arc::new(Mutex::new(CollectorState::new()));
+    let state = Arc::new(Mutex::new(CollectorState::with_max_retained_abandoned(
+        config.max_retained_abandoned,
+    )));
     let (patches, _) = broadcast::channel(BROADCAST_CAPACITY);
 
     let handle = CollectorHandle {
@@ -58,11 +79,12 @@ pub(crate) fn spawn_collector(
     };
 
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(tick);
+        let mut ticker = tokio::time::interval(config.tick);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {
             tokio::select! {
+                _ = cancel.cancelled() => break,
                 event = events.recv() => {
                     match event {
                         Some(event) => {

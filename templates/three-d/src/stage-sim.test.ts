@@ -79,6 +79,19 @@ describe("StageSim ingest — snapshot", () => {
     expect(byId.get("c")?.phase).toBe("abandoned");
   });
 
+  it("ingests a representative thousand-record payload", () => {
+    const sim = new StageSim();
+    const jobs = Array.from({ length: 1_000 }, (_, index) => ({
+      ...job(`job_${index.toString().padStart(4, "0")}`, "indexer", { phase: "held", reason: "r".repeat(80) }, 100),
+      meta: { height: index.toString(), source: "representative" },
+    }));
+
+    sim.ingest(data(jobs));
+
+    expect(sim.jobList()).toHaveLength(1_000);
+    expect(sim.jobList().at(-1)?.job_id).toBe("job_0999");
+  });
+
   it("queues items beyond the reported in-flight capacity, oldest first", () => {
     const sim = new StageSim();
     sim.ingest(

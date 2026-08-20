@@ -4,10 +4,14 @@
 //! be measured honestly — see [`ProcessStats`](crate::model::ProcessStats).
 //! Isolated in one file so a `sysinfo` API change stays a local fix.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+use tokio::sync::mpsc::error::TrySendError;
 
+use crate::cancel::CancelToken;
 use crate::event::Event;
 use crate::runtime::now_ms;
 
@@ -22,14 +26,21 @@ const BYTES_PER_MB: f64 = 1024.0 * 1024.0;
 ///
 /// Going through the event channel rather than writing state directly is what
 /// keeps the collector a pure function of its input.
-pub(crate) fn spawn_sampler(sender: tokio::sync::mpsc::Sender<Event>) {
+pub(crate) fn spawn_sampler(
+    sender: tokio::sync::mpsc::Sender<Event>,
+    dropped: Arc<AtomicU64>,
+    mut cancel: CancelToken,
+) {
     tokio::spawn(async move {
         let pid = Pid::from_u32(std::process::id());
         let mut system = System::new();
         let mut ticker = tokio::time::interval(SAMPLE_INTERVAL);
 
         loop {
-            ticker.tick().await;
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = ticker.tick() => {}
+            }
 
             system.refresh_processes_specifics(
                 ProcessesToUpdate::Some(&[pid]),
@@ -48,8 +59,15 @@ pub(crate) fn spawn_sampler(sender: tokio::sync::mpsc::Sender<Event>) {
             };
 
             // Same rule as every other event: never block the pipeline. A full
-            // channel simply costs this sample.
-            let _ = sender.try_send(event);
+            // channel simply costs this sample, and is counted like any other
+            // dropped event. A closed channel means the collector is gone.
+            match sender.try_send(event) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => {
+                    dropped.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(TrySendError::Closed(_)) => break,
+            }
         }
     });
 }

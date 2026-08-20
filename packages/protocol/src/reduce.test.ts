@@ -56,6 +56,24 @@ describe("applySnapshot", () => {
     expect(Object.keys(fresh.jobs)).toEqual(["block_1"]);
     expect(Object.keys(fresh.nodes)).toEqual(["committer"]);
   });
+
+  it("reduces a representative thousand-record payload", () => {
+    const jobs = Array.from({ length: 1_000 }, (_, index): JobState => ({
+      job_id: `job_${index.toString().padStart(4, "0")}`,
+      job_type: "Block",
+      current_node: "indexer",
+      phase: "held",
+      reason: "r".repeat(80),
+      entered_node_at_ms: 1_000,
+      created_at_ms: 900,
+      meta: { height: index.toString(), source: "representative" },
+    }));
+
+    const reduced = applySnapshot(snapshot([node("indexer")], jobs));
+
+    expect(Object.keys(reduced.jobs)).toHaveLength(1_000);
+    expect(reduced.jobs.job_0999?.meta.source).toBe("representative");
+  });
 });
 
 describe("applyPatch", () => {

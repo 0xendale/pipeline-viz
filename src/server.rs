@@ -1,11 +1,15 @@
 //! Serves the dashboard. Subscribes to collector output; never mutates state.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
 
+use crate::cancel::CancelToken;
 use crate::model::ServerMessage;
 use crate::runtime::CollectorHandle;
 
@@ -13,14 +17,40 @@ use crate::runtime::CollectorHandle;
 #[derive(Clone, Debug)]
 pub(crate) struct ServerState {
     pub(crate) collector: CollectorHandle,
+    pub(crate) cancel: CancelToken,
 }
 
-/// Take over an already-bound listener and serve until the process exits.
+/// Clears the serving flag however the server task ends.
+///
+/// Created before the task is spawned, so the flag is also cleared when the
+/// task is dropped without ever being polled — which is what happens when the
+/// runtime is destroyed while the tracker outlives it.
+#[derive(Debug)]
+struct ServingGuard(Arc<AtomicBool>);
+
+impl Drop for ServingGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
+/// Take over an already-bound listener and serve until the tracker is dropped.
 ///
 /// The listener is bound by the caller so that a bind failure is reported
 /// synchronously, and so the real port is known before this task starts.
-pub(crate) fn serve(listener: std::net::TcpListener, collector: CollectorHandle) {
+pub(crate) fn serve(
+    listener: std::net::TcpListener,
+    collector: CollectorHandle,
+    mut cancel: CancelToken,
+    serving: Arc<AtomicBool>,
+) {
+    serving.store(true, Ordering::Relaxed);
+    let guard = ServingGuard(serving);
+    let client_cancel = cancel.clone();
+
     tokio::spawn(async move {
+        let _guard = guard;
+
         let listener = match tokio::net::TcpListener::from_std(listener) {
             Ok(listener) => listener,
             Err(error) => {
@@ -36,11 +66,17 @@ pub(crate) fn serve(listener: std::net::TcpListener, collector: CollectorHandle)
             // Everything else is the embedded bundle, which also absorbs
             // unknown paths so a reloaded dashboard route still loads.
             .fallback(get(crate::assets::asset))
-            .with_state(ServerState { collector });
+            .with_state(ServerState {
+                collector,
+                cancel: client_cancel,
+            });
 
         // A serving failure means no dashboard. It must never take the host
         // pipeline down with it.
-        if let Err(error) = axum::serve(listener, app).await {
+        let served = axum::serve(listener, app)
+            .with_graceful_shutdown(async move { cancel.cancelled().await })
+            .await;
+        if let Err(error) = served {
             eprintln!("pipeline-viz: dashboard stopped ({error})");
         }
     });
@@ -50,7 +86,26 @@ async fn websocket_upgrade(
     upgrade: WebSocketUpgrade,
     State(state): State<ServerState>,
 ) -> Response {
-    upgrade.on_upgrade(move |socket| client_loop(socket, state))
+    upgrade.on_upgrade(move |socket| client_session(socket, state))
+}
+
+/// Runs one client until it disconnects or the tracker is dropped.
+///
+/// The whole session sits inside the `select!`, not just the receive: a client
+/// that has stopped reading parks the server mid-send, and only dropping that
+/// future releases the socket. The client then sees EOF, which is the correct
+/// signal that the dashboard is gone.
+///
+/// That means shutdown closes the connection abruptly rather than sending a
+/// close frame, so a browser reports code 1006. Sending one first would mean
+/// awaiting a send that may be exactly the one that is parked, which is the
+/// hang this arrangement exists to prevent.
+async fn client_session(socket: WebSocket, state: ServerState) {
+    let mut cancel = state.cancel.clone();
+    tokio::select! {
+        _ = client_loop(socket, &state) => {}
+        _ = cancel.cancelled() => {}
+    }
 }
 
 /// One task per connected dashboard client.
@@ -59,7 +114,7 @@ async fn websocket_upgrade(
 /// during setup is lost. The cost is that the buffer may hold patches older
 /// than the snapshot; those are discarded by timestamp, because patch entries
 /// carry whole values and replaying an old one would roll state backwards.
-async fn client_loop(mut socket: WebSocket, state: ServerState) {
+async fn client_loop(mut socket: WebSocket, state: &ServerState) {
     let mut patches = state.collector.subscribe();
     let snapshot = state.collector.snapshot();
     let snapshot_ts = snapshot.ts_ms;

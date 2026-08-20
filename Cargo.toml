@@ -1,12 +1,13 @@
 [package]
 name = "pipeline-viz"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.75"
 description = "Live item-level visibility for Rust data pipelines: see where every work item is and why it is stuck."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/0xendale/pipeline-viz"
+documentation = "https://docs.rs/pipeline-viz"
 keywords = ["pipeline", "observability", "telemetry", "visualization", "etl"]
 categories = ["development-tools::debugging", "visualization"]
 build = "build.rs"
@@ -26,6 +27,7 @@ include = [
     "/examples/**/*.rs",
     "/tests/**/*.rs",
     "/README.md",
+    "/CHANGELOG.md",
     "/LICENSE",
 ]
 
@@ -69,6 +71,10 @@ macros = ["dep:pipeline-viz-macros"]
 
 [[example]]
 name = "fake_indexer"
+required-features = ["viz"]
+
+[[example]]
+name = "tokio_pipeline"
 required-features = ["viz"]
 
 [package.metadata.docs.rs]
